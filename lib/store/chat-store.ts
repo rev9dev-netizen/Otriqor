@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { makeAutoObservable, observable } from "mobx";
 import { v4 as uuidv4 } from "uuid";
 
-export type Role = "user" | "assistant" | "system";
+export type Role = "user" | "assistant" | "system" | "tool";
 
 export interface Attachment {
   id?: string; // Server-side File ID
@@ -16,8 +17,10 @@ export interface MessageNode {
   parentId: string | null;
   childrenIds: string[];
   role: Role;
+  name?: string;
   content: string;
   attachments?: Attachment[];
+  citations?: any; // JSONB storage for tool results/sources
   createdAt: number;
   feedback?: "like" | "dislike" | null;
   stats?: {
@@ -49,13 +52,19 @@ class ChatStore {
 
   isAnalyzing: boolean = false;
   
+  activeCitations: any[] | null = null;
+  
   setIsAnalyzing(isAnalyzing: boolean) {
     this.isAnalyzing = isAnalyzing;
   }
 
+  setActiveCitations(citations: any[] | null) {
+    this.activeCitations = citations;
+  }
+
   // Add a message to the active conversation path
-  addMessage(role: Role, content: string, parentId: string | null = null, id: string | null = null, attachments?: Attachment[]) {
-    console.log("ChatStore.addMessage:", { role, content, attachments });
+  addMessage(role: Role, content: string, parentId: string | null = null, id: string | null = null, attachments?: Attachment[], citations?: any) {
+    console.log("ChatStore.addMessage:", { role, content, attachments, citations });
     const messageId = id || uuidv4();
     const message: MessageNode = {
       id: messageId,
@@ -64,6 +73,7 @@ class ChatStore {
       role,
       content,
       attachments,
+      citations,
       createdAt: Date.now(),
       stats: undefined // Explicitly undefined initially
     };
@@ -135,6 +145,13 @@ class ChatStore {
     const message = this.messages.get(id);
     if (message) {
       this.messages.set(id, { ...message, content });
+    }
+  }
+
+  updateMessageCitations(id: string, citations: any) {
+    const message = this.messages.get(id);
+    if (message) {
+      this.messages.set(id, { ...message, citations });
     }
   }
 

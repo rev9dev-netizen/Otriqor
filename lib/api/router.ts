@@ -18,7 +18,8 @@ export type StreamChunk =
         timeToFirstToken: number;
         stopReason: string;
       } 
-    };
+    }
+  | { type: "tool_result"; content: string; name: string };
 
 export interface ModelAdapter {
   id: string;

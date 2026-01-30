@@ -8,8 +8,8 @@ import { observer } from "mobx-react-lite";
 // Sub-components
 import { MessageActions } from "./message-actions";
 import { MessageContent } from "./message-content";
-import { TokenStats } from "./token-stats";
-import { FileText } from "lucide-react";
+import { FileText, Globe } from "lucide-react";
+import { SearchResult } from "@/lib/tools/web-search";
 
 interface MessageItemProps {
   message: MessageNode;
@@ -17,9 +17,10 @@ interface MessageItemProps {
   onRegenerate?: (id: string, instructions?: string) => void;
   onEdit?: (id: string, newContent: string) => void;
   onBranch?: (id: string) => void;
+  citations?: SearchResult[];
 }
 
-export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdit, onBranch }: MessageItemProps) => {
+export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdit, onBranch, citations }: MessageItemProps) => {
   const isUser = message.role === "user";
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -53,7 +54,7 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
 
   return (
     <div className={cn(
-        "group w-full flex min-w-0 mb-2 gap-1", 
+        "group w-full flex min-w-0 mb-2", 
         isUser ? "flex-col justify-end items-end" : "flex-col justify-start items-start"
     )}>
         {/* Attachments - Separate Bubble Stack */}
@@ -84,7 +85,7 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
         {(message.content || isStreaming || isAnalyzing) && (
             <div className={cn(
                 "rounded-xl text-base transition-colors", 
-                 isUser 
+                isUser 
                     ? "bg-[#f4f4f4] dark:bg-[#2f2f2f] text-gray-900 dark:text-gray-100 px-5 py-2.5 w-fit max-w-[85%]" 
                     : "bg-transparent text-gray-900 dark:text-gray-100 px-0 w-full" 
             )}>
@@ -101,22 +102,50 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
                         // Attachments handled in parent now
                     />
                 </div>
+                {/* <TokenStats stats={message.stats} /> */}
             </div>
         )}
 
         {/* Footer / Actions */}
         {!isStreaming && !isEditing && (
-             <div className="flex flex-col gap-1 items-start">
-                <TokenStats stats={message.stats} />
-                <MessageActions 
-                    isUser={isUser}
-                    message={message}
-                    onEdit={() => setIsEditing(true)}
-                    onCopy={handleCopy}
-                    isCopied={isCopied}
-                    onFeedback={handleFeedback}
-                    onBranch={() => onBranch?.(message.id)}
-                />
+             <div className="flex flex-col gap-2 items-start mt-1">
+                 {/* Citations Button */}
+                <div className="flex flex-col w-full gap-2">
+                  <div className="flex items-center gap-2">
+                      <MessageActions 
+                          isUser={isUser}
+                          message={message}
+                          onEdit={() => setIsEditing(true)}
+                          onCopy={handleCopy}
+                          isCopied={isCopied}
+                          onFeedback={handleFeedback}
+                          onBranch={() => onBranch?.(message.id)}
+                      />
+                      {/* Citations Button - Now Inline */}
+                      {citations && citations.length > 0 && (
+                        <button 
+                            onClick={() => {
+                                // Toggle: If clicking same citations, close it. If different, open it.
+                                if (chatStore.activeCitations === citations) {
+                                    chatStore.setActiveCitations(null);
+                                } else {
+                                    chatStore.setActiveCitations(citations);
+                                }
+                            }}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-xs font-medium",
+                                chatStore.activeCitations === citations 
+                                    ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20" 
+                                    : "hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-500 dark:text-neutral-400"
+                            )}
+                        >
+                            <Globe className="w-3.5 h-3.5" />
+                            <span className="ml-0.5">{citations.length} Sources</span>
+                        </button>
+                      )}
+                  </div>
+                  
+                </div>
             </div>
         )}
     </div>

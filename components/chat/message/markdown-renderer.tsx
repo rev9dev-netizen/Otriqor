@@ -74,6 +74,21 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
         a({ href, children }) {
             return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{children}</a>
         },
+        p({ children }) {
+            return <p className="leading-7 [&:not(:first-child)]:mt-6 mb-1">{children}</p>;
+        },
+        h1({ children }) {
+            return <h1 className="scroll-m-20 text-3xl font-extrabold tracking-tight lg:text-4xl mt-8 mb-4">{children}</h1>;
+        },
+        h2({ children }) {
+            return <h2 className="scroll-m-20 border-b pb-2 text-2xl font-semibold tracking-tight first:mt-0 mt-8 mb-4">{children}</h2>;
+        },
+        h3({ children }) {
+            return <h3 className="scroll-m-20 text-xl font-semibold tracking-tight mt-6 mb-3">{children}</h3>;
+        },
+        h4({ children }) {
+            return <h4 className="scroll-m-20 text-lg font-semibold tracking-tight mt-6 mb-3">{children}</h4>;
+        },
         ul({ children }) {
             return <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>;
         },
@@ -82,7 +97,7 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
         }
       }}
     >
-      {content}
+      {safeContent}
     </ReactMarkdown>
   );
 });

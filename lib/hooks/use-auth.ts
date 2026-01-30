@@ -15,14 +15,8 @@ export function useAuth() {
       if (session) {
         setUser(session.user);
       } else {
-        // Try anonymous sign in required for RLS to work without full login
-        // Note: You must enable "Anonymous Sign-in" in Supabase Dashboard -> Auth -> Providers
-        const { data, error } = await supabase.auth.signInAnonymously();
-        if (data.user) {
-            setUser(data.user);
-        } else {
-            console.warn("Anonymous sign-in failed. You may need to enable it in Supabase or log in manually.", error);
-        }
+        // No user session
+        setUser(null);
       }
       setLoading(false);
     };

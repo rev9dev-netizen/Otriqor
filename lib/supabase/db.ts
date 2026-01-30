@@ -106,15 +106,16 @@ export async function saveMessage(chatId: string, message: MessageNode) {
     .insert({
       id: message.id, // Ensure we use the same ID as frontend for consistency
       chat_id: chatId,
-      role: message.role,
+      role: message.role, // Now supported by DB constraint
       content: message.content,
       parent_id: message.parentId,
       model: 'mistral-large-latest', // Hardcoded for now, should be dynamic
-      attachments: message.attachments || null
+      attachments: message.attachments || null,
+      citations: message.citations || null
     });
 
   if (error) {
-      console.error("saveMessage DB Error:", error);
+      console.error("saveMessage DB Error:", JSON.stringify(error, null, 2));
       throw error;
   }
 }

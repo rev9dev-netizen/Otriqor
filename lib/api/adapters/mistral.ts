@@ -209,8 +209,16 @@ export class MistralAdapter implements ModelAdapter {
 
       // --- HANDLE TOOL EXECUTION ---
       if (isToolCall && toolCallBuffer) {
-          yield { type: "text", content: "\n\n*Searching the web...*\n\n" }; // UI feedback
-
+          // UI Feedback - Yield as text so user sees something happening, 
+          // OR better: we can handle this in UI via "Searching..." state if we want.
+          // For now, let's just not yield the raw text to keep it clean, 
+          // or yield a system message? 
+          // Actually, yielding it as text makes it part of the assistant response which clutters it.
+          // Let's rely on the loading state in UI or yield a specialized status?
+          // The user complained about formatting. Let's REMOVE the "Searching the web..." text yield 
+          // and let the UI handle the delay via isAnalyzing or similar if needed. 
+          // But to be safe, let's just drop it for now.
+          
           let query = "";
           try {
              const args = JSON.parse(toolCallBuffer.function.arguments);
@@ -223,6 +231,9 @@ export class MistralAdapter implements ModelAdapter {
                 console.log("Executing Web Search (Raw):", query);
                 const searchResults = await searchWeb(query);
                 const toolResultContent = JSON.stringify(searchResults);
+
+                // Yield the tool result so UI can store it (HIDDEN)
+                yield { type: "tool_result", content: toolResultContent, name: "web_search" };
 
                 // 2. Append Assistant Message (snake_case for API)
                 // Mistral requires NO Content if tool_calls present.

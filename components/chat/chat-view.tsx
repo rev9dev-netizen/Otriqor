@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
+import { CitationSidebar } from "@/components/chat/citation-sidebar";
 
 interface ChatViewProps {
   chatId?: string;
@@ -61,7 +62,7 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
               if (messages && messages.length > 0) {
                  messages.forEach((msg: any) => {
                      // We should ideally preserve timestamps if possible, but basic add is fine for now
-                     chatStore.addMessage(msg.role, msg.content, null, msg.id, msg.attachments);
+                     chatStore.addMessage(msg.role, msg.content, null, msg.id, msg.attachments, msg.citations);
                  });
               }
           } catch (e) {
@@ -137,6 +138,16 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
                     chatStore.updateMessageContent(assistantMsgId, accumulatedContent);
                 } else if (chunk.type === "usage") {
                     chatStore.updateMessageStats(assistantMsgId, chunk.stats);
+                } else if (chunk.type === "tool_result") {
+                    // Refactored: Attach citations directly to Assistant Message
+                    try {
+                        const searchResults = JSON.parse(chunk.content);
+                        if (Array.isArray(searchResults)) {
+                            chatStore.updateMessageCitations(assistantMsgId, searchResults);
+                        }
+                    } catch (e) {
+                         console.error("Failed to parse tool result for citations", e);
+                    }
                 }
             }
         } finally {
@@ -169,7 +180,12 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
 
     } catch (error) {
         console.error("Chat Failed:", error);
-        chatStore.addMessage("system", "Error: Could not save to database. Are you logged in?");
+        if (error instanceof Error) {
+             console.error("Error Message:", error.message);
+             console.error("Error Stack:", error.stack);
+        }
+        console.log("Current User State:", user);
+        chatStore.addMessage("system", `Error: Could not save to database. Details: ${(error as any)?.message || error}`);
     }
   };
 
@@ -223,7 +239,7 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
   };
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex h-full relative overflow-hidden">
         {/* Loading Overlay */}
         {isLoading && (
             <div className="absolute inset-0 z-50 bg-white/50 dark:bg-black/50 backdrop-blur-sm flex items-center justify-center">
@@ -262,28 +278,37 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
             )}
         </div>
 
-        {/* Main Content Area */}
-        <div className="flex-1 w-full min-w-0 overflow-y-auto">
-            {!hasMessages ? (
-                // Landing Empty State (Centered)
-                <ChatWelcome onSend={(content, attachments) => handleSend(content, attachments)} />
-            ) : (
-                <div className="flex flex-col min-h-full">
-                    {/* Messages Area - Pushes Footer down */}
-                    <div className="flex-1 pt-14">
-                        <MessageList onRegenerate={handleRegenerate} onEdit={handleEdit} />
-                    </div>
+        {/* Main Content Area - Flexible Width */}
+        <div className="flex-1 flex flex-col h-full min-w-0 transition-all duration-300 ease-in-out">
+            <div className="flex-1 w-full overflow-y-auto">
+                {!hasMessages ? (
+                    // Landing Empty State (Centered)
+                    <ChatWelcome onSend={(content, attachments) => handleSend(content, attachments)} />
+                ) : (
+                    <div className="flex flex-col min-h-full">
+                        {/* Messages Area - Pushes Footer down */}
+                        <div className="flex-1 pt-14">
+                            <MessageList onRegenerate={handleRegenerate} onEdit={handleEdit} />
+                        </div>
 
-                    {/* Sticky Footer Input */}
-                    <div className="sticky bottom-0 z-30 w-full rounded-t-lg pb-2 bg-gradient-to-t from-white via-white to-transparent dark:from-[#121212] dark:via-[#121212] dark:to-transparent pt-10">
-                        <ChatInput 
-                            onSend={handleSend}
-                            showFooterDisclaimer={true} // Visible in footer view
-                        />
+                        {/* Sticky Footer Input */}
+                        <div className="sticky bottom-0 z-30 w-full rounded-t-lg pb-2 bg-gradient-to-t from-white via-white to-transparent dark:from-[#121212] dark:via-[#121212] dark:to-transparent pt-10">
+                            <ChatInput 
+                                onSend={handleSend}
+                                showFooterDisclaimer={true} // Visible in footer view
+                            />
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
+
+        {/* Right Sidebar - Citations */}
+        {chatStore.activeCitations && (
+             <div className="w-[400px] shrink-0 h-full border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0c0c] transition-all duration-300 ease-in-out">
+                  <CitationSidebar className="h-full" />
+             </div>
+        )}
     </div>
   );
 });
