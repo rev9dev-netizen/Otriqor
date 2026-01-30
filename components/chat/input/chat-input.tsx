@@ -176,20 +176,37 @@ export function ChatInput({
   return (
     <div className={cn("w-full max-w-[48rem] mx-auto px-4 px-4", className)}>
       <div className={cn(
-          "relative w-full bg-[#f4f4f4] dark:bg-[#2f2f2f] border-transparent focus-within:border-neutral-300 dark:focus-within:border-neutral-600 rounded-2xl overflow-hidden shadow-none transition-all duration-200 ease-in-out px-2 py-2",
+          "relative w-full bg-[#f4f4f4] dark:bg-[#2f2f2f] border-transparent focus-within:border-neutral-300 dark:focus-within:border-neutral-600 rounded-3xl overflow-hidden shadow-none transition-all duration-200 ease-in-out px-2 py-2",
           // Grid Layout Definition
           "grid gap-2",
           // Conditional Alignment: Center in tube mode (for vertical alignment), End in expanded mode (buttons at bottom)
-          (attachments.length > 0 || isMultiline || !!activeFeature) ? "items-end" : "items-center",
+          (attachments.length > 0 || isMultiline) ? "items-end" : "items-center",
           // Conditional Column/Row Structure
-          (attachments.length > 0 || isMultiline || !!activeFeature)
+          (attachments.length > 0 || isMultiline)
             ? "grid-cols-[auto_1fr]" // Expanded: 2 Columns (Plus | Actions) - Text is full width row above
             : "grid-cols-[auto_1fr_auto]" // Collapsed: 3 Columns (Plus | Text | Actions)
       )}>
         
-        {/* area: attachments (Full Width) */}
-        {attachments.length > 0 && (
-             <div className="col-span-full row-start-1 w-full flex flex-wrap gap-2 pb-1">
+        {/* area: attachments or active feature (Full Width) */}
+        {(attachments.length > 0 || activeFeature) && (
+             <div className="col-span-full row-start-1 w-full flex flex-wrap gap-2 pb-1 px-1">
+                  {/* Active Feature Chip */}
+                  {activeFeature && (
+                      <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                          <div className="flex items-center gap-1.5 pl-2 pr-3 py-1 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full text-xs font-medium text-neutral-700 dark:text-neutral-300 select-none">
+                              {activeFeature.icon}
+                              <span>{activeFeature.label}</span>
+                              <button 
+                                  onClick={() => setActiveFeature(null)}
+                                  className="ml-1 p-0.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                              >
+                                  <X className="h-3 w-3" />
+                              </button>
+                          </div>
+                      </div>
+                  )}
+
+                  {/* Attachments */}
                   {attachments.map((file, i) => {
                     const ext = file.name.split('.').pop()?.toUpperCase() || 'FILE';
                     return (
@@ -227,8 +244,8 @@ export function ChatInput({
 
         {/* area: plus button */}
         <div className={cn(
-             (attachments.length > 0 || isMultiline || !!activeFeature) 
-                ? "col-start-1 row-start-3" // Bottom Left in split mode (added minor padding adjustment)
+             (attachments.length > 0 || isMultiline) 
+                ? "col-start-1 row-start-3" // Bottom Left in split mode
                 : "col-start-1" // Left in tube mode (order-2)
         )}>
              <FeatureMenu onActivateFeature={activateFeature} />
@@ -247,7 +264,7 @@ export function ChatInput({
         {/* area: text */}
         <div className={cn(
              "min-w-0 transition-all duration-200 flex flex-col justify-center",
-             (attachments.length > 0 || isMultiline || !!activeFeature)
+             (attachments.length > 0 || isMultiline)
                 ? "col-span-full w-full" // Full width middle row in split mode
                 : "col-start-2 w-full" // Middle column in tube mode
         )}>
@@ -259,34 +276,18 @@ export function ChatInput({
                 placeholder={activeFeature ? `${activeFeature.label}...` : "Ask Anything"}
                 className={cn(
                     "w-full bg-transparent border-none outline-none resize-none py-2 text-base text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-500 font-sans transition-all",
-                    (attachments.length > 0 || isMultiline || !!activeFeature) ? "px-1" : "px-0"
+                    (attachments.length > 0 || isMultiline) ? "px-1" : "px-0"
                 )}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
             />
-
-            {/* Active Feature Chip */}
-            {activeFeature && (
-                <div className="flex items-center gap-2 mt-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <div className="flex items-center gap-1.5 pl-2 pr-3 py-1 bg-transparent border border-neutral-300 dark:border-neutral-600 rounded-full text-xs font-medium text-neutral-700 dark:text-neutral-300 select-none">
-                        {activeFeature.icon}
-                        <span>{activeFeature.label}</span>
-                        <button 
-                            onClick={() => setActiveFeature(null)}
-                            className="ml-1 p-0.5 rounded-full hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
-                        >
-                            <X className="h-3 w-3" />
-                        </button>
-                    </div>
-                </div>
-            )}
         </div>
 
         {/* area: actions (mic/send) */}
         <div className={cn(
              "flex items-center gap-2 justify-end",
-             (attachments.length > 0 || isMultiline || !!activeFeature)
+             (attachments.length > 0 || isMultiline)
                 ? "col-start-2 row-start-3 pb-0.5" // Bottom Right in split mode
                 : "col-start-3" // Right in tube mode
         )}>
