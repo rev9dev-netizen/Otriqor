@@ -13,6 +13,11 @@ interface MarkdownRendererProps {
 }
 
 export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) => {
+  // Fix LaTeX incompatible characters (e.g. en-dash to hyphen)
+  const safeContent = React.useMemo(() => {
+    return content.replace(/–/g, '-');
+  }, [content]);
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}

@@ -5,11 +5,19 @@
 /* eslint-disable @next/next/no-img-element */
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Search, Plus, AlertCircle, Eye, Brain, Globe, Box, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Search, Plus, AlertCircle, Eye, Brain, Globe, Box, RefreshCw, Sparkles, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { providers, Model } from "@/lib/config/models";
+import { toast } from "sonner";
+import { 
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 // ... imports
 
@@ -61,17 +69,35 @@ export function ProviderSettings() {
 
   const toggleProvider = (id: string) => {
       const newSet = new Set(enabledProviderIds);
+      let isEnabling = false;
       if (newSet.has(id)) {
-          if (newSet.size > 1) newSet.delete(id); // Prevent disabling all? Or allow it? Let's allow but maybe warn users. Actually, let's keep at least one helps prevent empty states, but user might want all off.
+          if (newSet.size > 1) {
+              newSet.delete(id);
+              isEnabling = false;
+          } else {
+              toast.error("Cannot disable all providers", {
+                  description: "At least one provider must be enabled."
+              });
+              return; 
+          }
       } else {
           newSet.add(id);
+          isEnabling = true;
       }
       updateEnabledProviders(newSet);
+      toast.success(isEnabling ? "Provider Enabled" : "Provider Disabled", {
+          description: `${isEnabling ? "Enabled" : "Disabled"} ${STATIC_PROVIDERS.find(p => p.id === id)?.name || id}. Settings saved.`
+      });
   };
 
   // Current view state
   const selectedProvider = STATIC_PROVIDERS.find(p => p.id === selectedProviderId) || STATIC_PROVIDERS[0];
   const isSelectedProviderEnabled = enabledProviderIds.has(selectedProvider.id);
+
+  // Auto-fetch models when provider changes
+  React.useEffect(() => {
+      fetchModels();
+  }, [selectedProviderId]);
 
   const fetchModels = async () => {
       setIsLoadingModels(true);
@@ -80,16 +106,45 @@ export function ProviderSettings() {
           if (res.ok) {
               const data = await res.json();
               // Deduplicate
-              const uniqueModels = new Map();
+              const uniqueModels = new Map<string, Model>();
               data.models.forEach((m: Model) => {
                   if (!uniqueModels.has(m.id)) {
                       uniqueModels.set(m.id, m);
                   }
               });
-              setFetchedModels(Array.from(uniqueModels.values())); 
+              
+              const modelsList = Array.from(uniqueModels.values());
+              setFetchedModels(modelsList); 
+
+              // Smart Default: If no user preference saved, disable all except "latest" per provider
+              if (localStorage.getItem("disabled_models") === null) {
+                  const toDisable = new Set<string>();
+                  const providers = new Set(modelsList.map(m => m.provider));
+                  
+                  providers.forEach(p => {
+                      const pModels = modelsList.filter(m => m.provider === p);
+                      if (pModels.length > 0) {
+                          // Find "latest" or default to first
+                          const bestModel = pModels.find(m => m.id.toLowerCase().includes('latest')) || pModels[0];
+                          
+                          // Disable all others
+                          pModels.forEach(m => {
+                              if (m.id !== bestModel.id) {
+                                  toDisable.add(m.id);
+                              }
+                          });
+                      }
+                  });
+                  
+                  updateDisabledModels(toDisable);
+                  toast.info("Applied default model settings", {
+                      description: "Only the latest models are enabled by default."
+                  });
+              }
           }
       } catch (e) {
           console.error("Failed to fetch models", e);
+          toast.error("Failed to fetch models");
       } finally {
           setIsLoadingModels(false);
       }
@@ -107,14 +162,20 @@ export function ProviderSettings() {
   }, [fetchedModels, selectedProviderId, activeTab]);
   
   // Toggle Logic
-  const toggleModel = (id: string) => {
+  const toggleModel = (id: string, name: string) => {
       const newSet = new Set(disabledModelIds);
+      let isEnabling = false;
       if (newSet.has(id)) {
           newSet.delete(id);
+          isEnabling = true;
       } else {
           newSet.add(id);
+          isEnabling = false;
       }
       updateDisabledModels(newSet);
+      toast.success(isEnabling ? "Model Enabled" : "Model Disabled", {
+          description: `${isEnabling ? "Enabled" : "Disabled"} ${name}.`
+      });
   };
 
   return (
@@ -222,36 +283,16 @@ export function ProviderSettings() {
                      {/* 1. Configuration Section */}
                      <div className="space-y-6">
                          <div className="space-y-4">
-                             <div className="flex flex-col gap-2">
-                                 <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Status</label>
-                                 <div className={cn(
-                                     "flex items-center gap-3 p-3 border rounded-lg transition-all",
-                                     isSelectedProviderEnabled 
-                                        ? "bg-green-500/5 border-green-500/20" 
-                                        : "bg-[#121212] border-white/5"
-                                 )}>
-                                     <div className={cn(
-                                         "h-8 w-8 rounded-full flex items-center justify-center transition-colors",
-                                         isSelectedProviderEnabled ? "bg-green-500/20 text-green-500" : "bg-white/5 text-neutral-500"
-                                     )}>
-                                         <CheckCircle2 className="h-4 w-4" />
-                                     </div>
-                                     <div className="flex-1">
-                                         <div className="text-sm font-medium text-white">
-                                             {isSelectedProviderEnabled ? "Provider Enabled" : "Provider Disabled"}
-                                         </div>
-                                         <div className="text-xs text-neutral-500">
-                                             {isSelectedProviderEnabled 
-                                                ? "Models from this provider are available in chat." 
-                                                : "Enable this provider to use its models."}
-                                         </div>
-                                     </div>
-                                     <Switch 
-                                        checked={isSelectedProviderEnabled} 
-                                        onCheckedChange={() => toggleProvider(selectedProvider.id)}
-                                     />
-                                 </div>
-                             </div>
+                              <div className="flex items-center justify-between py-1">
+                                  <div className="flex flex-col gap-1">
+                                      <span className="text-sm font-medium text-white">Enable {selectedProvider.name}</span>
+                                      <span className="text-xs text-neutral-500">Allow using models from this provider in chat.</span>
+                                  </div>
+                                  <Switch 
+                                      checked={isSelectedProviderEnabled} 
+                                      onCheckedChange={() => toggleProvider(selectedProvider.id)}
+                                  />
+                              </div>
 
                              {/* Connectivity Check */}
                              <div className="flex items-end justify-between border-t border-white/5 pt-4">
@@ -260,16 +301,19 @@ export function ProviderSettings() {
                                       <div className="text-xs text-neutral-500">Test if your API key is working correctly.</div>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                      <select 
-                                        className="bg-[#121212] border border-white/10 rounded-md text-xs h-8 px-2 text-white outline-none min-w-[150px]"
-                                        value={testModelId}
-                                        onChange={(e) => setTestModelId(e.target.value)}
-                                      >
-                                          <option value="">Select model to test...</option>
-                                          {providerModels.map(m => (
-                                              <option key={m.id} value={m.id}>{m.name}</option>
-                                          ))}
-                                      </select>
+                                      <Select value={testModelId} onValueChange={setTestModelId}>
+                                          <SelectTrigger className="w-[200px] h-8 text-xs bg-[#121212] border-white/10 text-white">
+                                              <SelectValue placeholder="Select model to test..." />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                              {providerModels.map(m => (
+                                                  <SelectItem key={m.id} value={m.id} className="text-xs">
+                                                      {m.name}
+                                                  </SelectItem>
+                                              ))}
+                                          </SelectContent>
+                                      </Select>
+                                      
                                       <Button size="sm" variant="outline" className="h-8 bg-white/5 border-white/10 hover:bg-white/10 text-white">
                                           Check
                                       </Button>
@@ -361,20 +405,51 @@ export function ProviderSettings() {
                                              </div>
                                          </div>
                                          
-                                         <div className="flex items-center gap-6">
+                                          <div className="flex items-center gap-6">
                                               {/* Caps */}
                                               <div className="flex items-center gap-2">
-                                                  {model.capabilities.vision && <div className="p-1.5 rounded bg-green-500/10 text-green-500 border border-green-500/20" title="Vision"><Eye className="h-3.5 w-3.5" /></div>}
-                                                  {model.capabilities.thinking && <div className="p-1.5 rounded bg-purple-500/10 text-purple-500 border border-purple-500/20" title="Reasoning"><Brain className="h-3.5 w-3.5" /></div>}
-                                                  {model.capabilities.webSearch && <div className="p-1.5 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20" title="Web Search"><Globe className="h-3.5 w-3.5" /></div>}
-                                                  {model.capabilities.functionCall && <div className="p-1.5 rounded bg-orange-500/10 text-orange-500 border border-orange-500/20" title="Function Calling"><Box className="h-3.5 w-3.5" /></div>}
+                                                  {model.capabilities.vision && (
+                                                    <div className="p-1.5 rounded bg-green-500/10 text-green-500 border border-green-500/20 cursor-help" title="Visual Recognition">
+                                                        <Eye className="h-3.5 w-3.5" />
+                                                    </div>
+                                                  )}
+                                                  
+                                                  {model.capabilities.thinking && !model.name.toLowerCase().includes('large') && (
+                                                    <div className="p-1.5 rounded bg-purple-500/10 text-purple-500 border border-purple-500/20 cursor-help" title="Deep Thinking">
+                                                        <Brain className="h-3.5 w-3.5" />
+                                                    </div>
+                                                  )}
+
+                                                  {model.capabilities.thinking && model.name.toLowerCase().includes('large') && (
+                                                    <div className="p-1.5 rounded bg-pink-500/10 text-pink-500 border border-pink-500/20 cursor-help" title="Super Deep Thinking">
+                                                        <Sparkles className="h-3.5 w-3.5" />
+                                                    </div>
+                                                  )}
+
+                                                  {model.capabilities.webSearch && (
+                                                    <div className="p-1.5 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20 cursor-help" title="Web Search">
+                                                        <Globe className="h-3.5 w-3.5" />
+                                                    </div>
+                                                  )}
+
+                                                  {model.capabilities.functionCall && (
+                                                    <div className="p-1.5 rounded bg-orange-500/10 text-orange-500 border border-orange-500/20 cursor-help" title="Function Calling">
+                                                        <Box className="h-3.5 w-3.5" />
+                                                    </div>
+                                                  )}
+
+                                                  {/* Max Tokens Badge */}
+                                                  <div className="p-1.5 rounded bg-neutral-800 text-neutral-400 border border-white/5 cursor-help flex items-center gap-1 font-mono text-[10px]" title="Maximum Tokens">
+                                                      <Terminal className="h-3 w-3" />
+                                                      {Math.round(model.maxTokens / 1000)}k
+                                                  </div>
                                               </div>
                                               
                                               <div className="h-8 w-px bg-white/5" />
 
                                               <Switch 
                                                 checked={!disabledModelIds.has(model.id)}
-                                                onCheckedChange={() => toggleModel(model.id)}
+                                                onCheckedChange={() => toggleModel(model.id, model.name)}
                                               />
                                          </div>
                                      </div>
