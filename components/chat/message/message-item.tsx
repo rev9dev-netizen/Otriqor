@@ -29,6 +29,7 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
   // Logic to determine if this message is currently being "analyzed"
   // We check global store state + ensure it's an assistant message + empty content + no stats yet
   const isAnalyzing = !isUser && chatStore.isAnalyzing && message.content === "" && !message.stats;
+  const isSearching = !isUser && chatStore.isSearching && message.content === "" && !message.stats;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -58,33 +59,46 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
         isUser ? "flex-col justify-end items-end" : "flex-col justify-start items-start"
     )}>
         {/* Attachments - Separate Bubble Stack */}
+        {/* Attachments - Customized Layout */}
         {message.attachments && message.attachments.length > 0 && (
             <div className={cn(
-                "flex flex-wrap gap-2 max-w-[85%]", 
+                "flex flex-wrap gap-2 max-w-[85%] mb-4", 
                 isUser ? "justify-end" : "justify-start"
             )}>
-                {message.attachments.map((file, i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 rounded-2xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 min-w-[200px]">
-                         {file.type.startsWith("image/") ? (
-                            <img src={file.url} alt={file.name} className="h-10 w-10 object-cover rounded-lg bg-white" />
-                         ) : (
-                            <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-white dark:bg-neutral-900 text-neutral-500">
-                               <FileText className="h-5 w-5" />
-                            </div>
-                         )}
-                         <div className="flex flex-col overflow-hidden">
-                             <span className="text-sm font-medium truncate text-neutral-900 dark:text-neutral-100">{file.name}</span>
-                             <span className="text-xs text-neutral-500 uppercase">{file.type.split('/')[1] || 'FILE'}</span>
-                         </div>
-                    </div>
-                ))}
+                {message.attachments.map((file, i) => {
+                    const isImage = file.type.startsWith("image/");
+                    return (
+                        <div key={i} className={cn(
+                             "relative overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-700",
+                             isImage ? "aspect-auto max-w-sm" : "flex items-center gap-3 p-3 bg-neutral-100 dark:bg-neutral-800 min-w-[200px]"
+                        )}>
+                             {isImage ? (
+                                <img 
+                                    src={file.url || ((file.content || "").startsWith('data:') ? file.content : '')} 
+                                    alt={file.name} 
+                                    className="object-contain max-h-[300px] w-auto bg-neutral-100 dark:bg-neutral-900" 
+                                />
+                             ) : (
+                                <>
+                                    <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-white dark:bg-neutral-900 text-neutral-500">
+                                       <FileText className="h-5 w-5" />
+                                    </div>
+                                    <div className="flex flex-col overflow-hidden">
+                                        <span className="text-sm font-medium truncate text-neutral-900 dark:text-neutral-100">{file.name}</span>
+                                        <span className="text-xs text-neutral-500 uppercase">{file.type.split('/')[1] || 'FILE'}</span>
+                                    </div>
+                                </>
+                             )}
+                        </div>
+                    );
+                })}
             </div>
         )}
 
         {/* Message Bubble (Text) - Only render if there is content or loading state */}
         {(message.content || isStreaming || isAnalyzing) && (
             <div className={cn(
-                "rounded-xl text-base transition-colors", 
+                "rounded-3xl text-base transition-colors", 
                 isUser 
                     ? "bg-[#f4f4f4] dark:bg-[#2f2f2f] text-gray-900 dark:text-gray-100 px-5 py-2.5 w-fit max-w-[85%]" 
                     : "bg-transparent text-gray-900 dark:text-gray-100 px-0 w-full" 
@@ -99,6 +113,7 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
                         onEditSave={handleEditSave}
                         isStreaming={isStreaming}
                         isAnalyzing={isAnalyzing}
+                        isSearching={isSearching}
                         // Attachments handled in parent now
                     />
                 </div>
@@ -107,7 +122,7 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
         )}
 
         {/* Footer / Actions */}
-        {!isStreaming && !isEditing && (
+        {!isStreaming && !isAnalyzing && !isEditing && (
              <div className="flex flex-col gap-2 items-start mt-1">
                  {/* Citations Button */}
                 <div className="flex flex-col w-full gap-2">

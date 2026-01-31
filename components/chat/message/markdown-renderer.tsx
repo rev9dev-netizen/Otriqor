@@ -7,6 +7,7 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
+import { StockCard } from '@/components/chat/Widgets/stock-card';
 
 interface MarkdownRendererProps {
   content: string;
@@ -14,8 +15,12 @@ interface MarkdownRendererProps {
 
 export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) => {
   // Fix LaTeX incompatible characters (e.g. en-dash to hyphen)
+  // Fix LaTeX incompatible characters (e.g. en-dash to hyphen)
+  // Also escape dollar signs that are likely currency ($ followed by digit) to prevent accidental math mode
   const safeContent = React.useMemo(() => {
-    return content.replace(/–/g, '-');
+    return content
+        .replace(/–/g, '-')
+        .replace(/(?<!\$)\$(?=\d)/g, '\\$'); // Escape $ if followed by a digit
   }, [content]);
 
   return (
@@ -25,6 +30,17 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
       components={{
         code({ node, inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
+          const isFinance = match && match[1] === 'finance';
+          
+          if (!inline && isFinance) {
+              try {
+                  const data = JSON.parse(String(children).replace(/\n$/, ''));
+                  return <div className='my-4'><StockCard data={data} /></div>;
+              } catch (e) {
+                  return <div className="text-red-500 text-xs">Error parsing stock data</div>;
+              }
+          }
+
           return !inline && match ? (
             <div className="relative rounded-xl overflow-hidden my-2 border border-white/10">
                 <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] text-xs text-white text-stone-400 select-none">

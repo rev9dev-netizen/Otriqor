@@ -148,6 +148,9 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
                     } catch (e) {
                          console.error("Failed to parse tool result for citations", e);
                     }
+                } else if (chunk.type === "tool_call") {
+                    // Store tool calls so history reconstruction works
+                    chatStore.updateMessageToolCalls(assistantMsgId, [chunk.tool_call]);
                 }
             }
         } finally {

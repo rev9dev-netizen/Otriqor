@@ -41,27 +41,40 @@ export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProp
         } catch(e) { console.error("Error loading provider logic", e); }
     }
 
-    async function fetchModels() {
+    async function fetchData() {
       try {
-        const res = await fetch("/api/models");
-        if (res.ok) {
-          const data = await res.json();
-          // Deduplicate
+        // 1. Fetch Models
+        const modelsRes = await fetch("/api/models");
+        let allModels: Model[] = [];
+        if (modelsRes.ok) {
+          const data = await modelsRes.json();
           const uniqueModels = new Map();
           data.models.forEach((m: Model) => {
               if (!uniqueModels.has(m.id)) {
                   uniqueModels.set(m.id, m);
               }
           });
-          setAvailableModels(Array.from(uniqueModels.values()));
+          allModels = Array.from(uniqueModels.values());
+          setAvailableModels(allModels);
+        }
+
+        // 2. Fetch Availability (Keys present?)
+        const availRes = await fetch("/api/models/availability");
+        if (availRes.ok) {
+            const { providers } = await availRes.json();
+            const activeProviders = new Set<string>();
+            Object.entries(providers).forEach(([provider, isAvailable]) => {
+                if (isAvailable) activeProviders.add(provider);
+            });
+            setEnabledProviderIds(activeProviders);
         }
       } catch (error) {
-        console.error("Failed to fetch models", error);
+        console.error("Failed to fetch data", error);
       } finally {
         setIsLoading(false);
       }
     }
-    fetchModels();
+    fetchData();
   }, []);
 
   // Filter out disabled models AND disabled providers

@@ -16,6 +16,7 @@ interface MessageContentProps {
   
   isStreaming?: boolean;
   isAnalyzing?: boolean;
+  isSearching?: boolean;
 }
 
 export function MessageContent({ 
@@ -26,7 +27,8 @@ export function MessageContent({
     onEditCancel, 
     onEditSave,
     isStreaming,
-    isAnalyzing
+    isAnalyzing,
+    isSearching
 }: MessageContentProps) {
     if (isEditing) {
         return (
@@ -53,24 +55,29 @@ export function MessageContent({
                 <MarkdownRenderer content={content} />
             )}
             
-            {/* Streaming / Analyzing Indicator - Sequential */}
-            {(isStreaming || isAnalyzing) && content.length === 0 && (
+            {/* Streaming / Analyzing / Searching Indicator - Sequential */}
+            {(isStreaming || isAnalyzing || isSearching) && content.length === 0 && (
                 <div className="flex items-center gap-2 text-neutral-500">
-                    {/* If Analyzing, show specific text. If just streaming (and not analyzed yet/anymore), show thinking. 
-                        Actually, 'isAnalyzing' is true while RAG is happening. 'isStreaming' is true when Tokens are coming.
-                        Usually RAG happens BEFORE tokens. 
-                    */}
-                    {isAnalyzing ? (
+                     {/* Only RAG triggers Analyzing, Web Search triggers Searching */}
+                     {isAnalyzing ? (
                          <div className="flex items-center gap-2">
                             <span className="relative flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
                             </span>
-                            <span className="text-sm font-medium animate-pulse">Analyzing file...</span>
+                            <span className="text-sm font-medium animate-pulse text-orange-500">Analyzing file...</span>
                          </div>
-                    ) : (
+                     ) : isSearching ? ( // Searching UI
+                         <div className="flex items-center gap-2">
+                            <span className="relative flex h-3 w-3">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
+                            </span>
+                            <span className="text-sm font-medium animate-pulse text-orange-500">Searching the internet...</span>
+                         </div>
+                     ) : (
                          <ThinkingAnimation />
-                    )}
+                     )}
                 </div>
             )}
         </div>

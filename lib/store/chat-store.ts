@@ -20,6 +20,7 @@ export interface MessageNode {
   name?: string;
   content: string;
   attachments?: Attachment[];
+  tool_calls?: any[]; // Store tool calls for history reconstruction
   citations?: any; // JSONB storage for tool results/sources
   createdAt: number;
   feedback?: "like" | "dislike" | null;
@@ -51,11 +52,16 @@ class ChatStore {
   }
 
   isAnalyzing: boolean = false;
+  isSearching: boolean = false; // Add search state
   
   activeCitations: any[] | null = null;
   
   setIsAnalyzing(isAnalyzing: boolean) {
     this.isAnalyzing = isAnalyzing;
+  }
+
+  setIsSearching(isSearching: boolean) {
+    this.isSearching = isSearching;
   }
 
   setActiveCitations(citations: any[] | null) {
@@ -153,6 +159,23 @@ class ChatStore {
     if (message) {
       this.messages.set(id, { ...message, citations });
     }
+  }
+
+  updateMessageToolCalls(id: string, tool_calls: any[]) {
+      const message = this.messages.get(id);
+      if (message) {
+          // Flatten: If tool_calls passed is just one object, array-ify it
+          const calls = Array.isArray(tool_calls) ? tool_calls : [tool_calls];
+          // Determine if we append or set. For simplicity, set if first, append if streaming multiple?
+          // Mistral usually sends one tool call per turn or array.
+          // Since we yield the full tool call object from adapter when it's done, we can probably just set it or push.
+          // Let's safe-guard:
+          const existing = message.tool_calls || [];
+          // Avoid duplicates if we yield multiple times (we yield ONCE per tool execution in loop)
+          // Actually adapter yields { type: "tool_call", tool_call: ... }
+          // We can append.
+          this.messages.set(id, { ...message, tool_calls: [...existing, ...calls] });
+      }
   }
 
   updateMessageStats(id: string, stats: Required<MessageNode>['stats']) {

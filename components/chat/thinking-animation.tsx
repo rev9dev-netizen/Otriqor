@@ -10,7 +10,7 @@ export function ThinkingAnimation() {
        <Lottie 
          animationData={loadingAnimation} 
          loop={true} 
-         className="w-18 h-18" // Increased size, negative margin to keep line height tight
+         className="w-12 h-12 -ml-2" 
        />
     </div>
   );

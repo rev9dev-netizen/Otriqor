@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import OpenAI from "openai";
 import { MessageNode } from "@/lib/store/chat-store";
 import { ModelAdapter } from "../router";
