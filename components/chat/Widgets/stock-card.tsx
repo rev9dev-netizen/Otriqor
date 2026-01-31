@@ -358,3 +358,55 @@ export function StockCard({ data: initialData }: { data: StockData }) {
         </div>
     );
 }
+
+export function StockSkeleton() {
+    return (
+        <div className="w-full bg-white dark:bg-[#1e1e1e] rounded-xl border border-neutral-200 dark:border-neutral-800 shadow-sm overflow-hidden my-4 font-sans max-w-full">
+            {/* Header Skeleton */}
+            <div className="p-5 border-b border-neutral-100 dark:border-neutral-800">
+                <div className="flex justify-between items-start mb-1">
+                    <div className="flex gap-4">
+                        {/* Logo Skeleton */}
+                        <div className="w-12 h-12 bg-neutral-200 dark:bg-neutral-800 rounded-xl animate-pulse" />
+                        <div>
+                            {/* Symbol Skeleton */}
+                            <div className="h-6 w-16 bg-neutral-200 dark:bg-neutral-800 rounded animate-pulse mb-1" />
+                            {/* Name Skeleton */}
+                            <div className="h-4 w-32 bg-neutral-100 dark:bg-neutral-800/50 rounded animate-pulse" />
+                        </div>
+                    </div>
+                    {/* Badge Skeleton */}
+                    <div className="w-16 h-6 bg-neutral-100 dark:bg-neutral-800/50 rounded animate-pulse" />
+                </div>
+
+                {/* Price Area Skeleton */}
+                <div className="mt-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                    <div>
+                        <div className="h-10 w-32 bg-neutral-200 dark:bg-neutral-800 rounded animate-pulse mb-2" />
+                        <div className="h-4 w-24 bg-neutral-100 dark:bg-neutral-800/50 rounded animate-pulse" />
+                    </div>
+                </div>
+            </div>
+
+            {/* Chart Area Skeleton */}
+            <div className="h-64 w-full bg-neutral-50 dark:bg-neutral-900/50 border-b border-neutral-100 dark:border-neutral-800 relative">
+                 <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="w-8 h-8 border-2 border-neutral-300 dark:border-neutral-700 border-t-transparent rounded-full animate-spin"/>
+                        <span className="text-xs text-neutral-400 font-medium animate-pulse">Loading Chart...</span>
+                    </div>
+                 </div>
+            </div>
+
+            {/* Stats Grid Skeleton */}
+            <div className="p-5 grid grid-cols-2 gap-y-4 gap-x-8">
+                {[...Array(6)].map((_, i) => (
+                    <div key={i} className="flex justify-between py-1 border-b border-neutral-100 dark:border-neutral-800/50">
+                         <div className="h-4 w-12 bg-neutral-100 dark:bg-neutral-800/50 rounded animate-pulse" />
+                         <div className="h-4 w-16 bg-neutral-200 dark:bg-neutral-800 rounded animate-pulse" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}

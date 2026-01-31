@@ -7,7 +7,7 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
-import { StockCard } from '@/components/chat/Widgets/stock-card';
+import { StockCard, StockSkeleton } from '@/components/chat/Widgets/stock-card';
 
 interface MarkdownRendererProps {
   content: string;
@@ -37,7 +37,7 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
                   const data = JSON.parse(String(children).replace(/\n$/, ''));
                   return <div className='my-4'><StockCard data={data} /></div>;
               } catch (e) {
-                  return <div className="text-red-500 text-xs">Error parsing stock data</div>;
+                  return <div className='my-4'><StockSkeleton /></div>;
               }
           }
 
