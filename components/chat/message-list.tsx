@@ -50,6 +50,30 @@ export const MessageList = observer(({ onRegenerate, onEdit, onBranch }: Message
             }
         }
 
+        // Check for siblings (versions)
+        let currentVersion, totalVersions;
+        let handlePrev, handleNext;
+
+        if (msg.parentId) {
+            const parent = chatStore.messages.get(msg.parentId);
+            if (parent && parent.childrenIds.length > 1) {
+                totalVersions = parent.childrenIds.length;
+                currentVersion = parent.childrenIds.indexOf(msg.id) + 1;
+                
+                handlePrev = () => chatStore.navigateBranch(msg.id, "prev");
+                handleNext = () => chatStore.navigateBranch(msg.id, "next");
+            }
+        } else {
+            // Root Node Case
+            if (chatStore.rootChildrenIds.length > 1) {
+                totalVersions = chatStore.rootChildrenIds.length;
+                currentVersion = chatStore.rootChildrenIds.indexOf(msg.id) + 1;
+                
+                handlePrev = () => chatStore.navigateBranch(msg.id, "prev");
+                handleNext = () => chatStore.navigateBranch(msg.id, "next");
+            }
+        }
+
         return (
             <MessageItem 
                 key={msg.id} 
@@ -59,6 +83,11 @@ export const MessageList = observer(({ onRegenerate, onEdit, onBranch }: Message
                 onRegenerate={onRegenerate}
                 onEdit={onEdit}
                 onBranch={onBranch}
+                // Versioning
+                currentVersion={currentVersion}
+                totalVersions={totalVersions}
+                onPrevVersion={handlePrev}
+                onNextVersion={handleNext}
             />
         );
       })}

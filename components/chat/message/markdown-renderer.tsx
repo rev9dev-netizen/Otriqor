@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-img-element */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -8,6 +10,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import 'katex/dist/katex.min.css';
 import { StockCard, StockSkeleton } from '@/components/chat/Widgets/stock-card';
+import { ImageCarousel, GallerySkeleton } from '@/components/chat/Widgets/image-carousel';
+import { WeatherCard, WeatherSkeleton } from '@/components/chat/Widgets/weather-card';
 
 interface MarkdownRendererProps {
   content: string;
@@ -24,6 +28,7 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
   }, [content]);
 
   return (
+    <div className="max-w-3xl">
     <ReactMarkdown
       remarkPlugins={[remarkGfm, remarkMath]}
       rehypePlugins={[rehypeKatex]}
@@ -31,6 +36,8 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
         code({ node, inline, className, children, ...props }: any) {
           const match = /language-(\w+)/.exec(className || '');
           const isFinance = match && match[1] === 'finance';
+          const isWeather = match && match[1] === 'weather';
+          const isGallery = match && match[1] === 'gallery';
           
           if (!inline && isFinance) {
               try {
@@ -41,13 +48,39 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
               }
           }
 
+          if (!inline && isWeather) {
+              try {
+                  const data = JSON.parse(String(children).replace(/\n$/, ''));
+                  return <div className='my-4'><WeatherCard data={data} /></div>;
+              } catch (e) {
+                  return <div className='my-4'><WeatherSkeleton /></div>;
+              }
+          }
+
+          if (!inline && isGallery) {
+              // Parse markdown image syntax: ![alt](url)
+              const content = String(children);
+              const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+              const images = [];
+              let m;
+              while ((m = imageRegex.exec(content)) !== null) {
+                  images.push({ alt: m[1], src: m[2] });
+              }
+              
+              if (images.length > 0) {
+                  return <ImageCarousel images={images} />;
+              }
+              // Show skeleton if we have the block but no images parsed yet (streaming)
+              return <GallerySkeleton />;
+          }
+
           return !inline && match ? (
-            <div className="relative rounded-xl overflow-hidden my-2 border border-white/10">
-                <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] text-xs text-white text-stone-400 select-none">
+            <div className="relative rounded-xl overflow-hidden my-2 border border-white/10 group">
+                <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] text-xs text-stone-400 select-none border-b border-white/5">
                     <span>{match[1]}</span>
                     <button 
                         onClick={() => navigator.clipboard.writeText(String(children))} 
-                        className="hover:text-white"
+                        className="hover:text-white transition-colors opacity-0 group-hover:opacity-100"
                     >
                         Copy
                     </button>
@@ -60,8 +93,7 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
                 customStyle={{ 
                     margin: 0, 
                     borderRadius: 0, 
-                    borderBottomLeftRadius: '0.375rem', 
-                    borderBottomRightRadius: '0.375rem',
+                    background: '#1e1e1e',
                     fontFamily: '"Funnel Sans", sans-serif' 
                 }}
                 {...props}
@@ -70,51 +102,86 @@ export const MarkdownRenderer = React.memo(({ content }: MarkdownRendererProps) 
                 </SyntaxHighlighter>
             </div>
           ) : (
-            <code className={`${className} bg-black/10 dark:bg-white/10 rounded px-1 py-0.5 text-sm`} {...props}>
+            <code className={`${className} bg-white/10 rounded px-1.5 py-0.5 text-sm font-medium text-neutral-200`} {...props}>
               {children}
             </code>
           );
         },
         table({ children }) {
-            return <div className="overflow-x-auto my-4"><table className="min-w-full border-collapse border border-white/10 text-sm">{children}</table></div>;
+            return <div className="overflow-x-auto my-6 rounded-lg border border-white/10"><table className="min-w-full text-left text-sm">{children}</table></div>;
         },
         thead({ children }) {
-            return <thead className="bg-white/5">{children}</thead>;
+            return <thead className="bg-white/5 text-neutral-300 font-medium border-b border-white/5">{children}</thead>;
         },
         th({ children }) {
-            return <th className="border border-white/10 px-4 py-2 text-left font-semibold">{children}</th>;
+            return <th className="px-4 py-3 font-medium text-xs uppercase tracking-wider text-neutral-400 select-none">{children}</th>;
         },
         td({ children }) {
-            return <td className="border border-white/10 px-4 py-2">{children}</td>;
+            return <td className="px-4 py-3 border-b border-white/5 text-neutral-300 first:font-medium first:text-neutral-200">{children}</td>;
         },
         a({ href, children }) {
-            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">{children}</a>
+            return (
+                <a 
+                    href={href} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-white/80 hover:text-white underline decoration-white/20 hover:decoration-white/50 transition-colors font-medium break-all"
+                >
+                    {children}
+                </a>
+            )
         },
-        p({ children }) {
-            return <p className="leading-7 [&:not(:first-child)]:mt-6 mb-1">{children}</p>;
-        },
-        h1({ children }) {
-            return <h1 className="scroll-m-20 text-3xl font-extrabold tracking-tight lg:text-4xl mt-8 mb-4">{children}</h1>;
-        },
-        h2({ children }) {
-            return <h2 className="scroll-m-20 border-b pb-2 text-2xl font-semibold tracking-tight first:mt-0 mt-8 mb-4">{children}</h2>;
-        },
-        h3({ children }) {
-            return <h3 className="scroll-m-20 text-xl font-semibold tracking-tight mt-6 mb-3">{children}</h3>;
-        },
-        h4({ children }) {
-            return <h4 className="scroll-m-20 text-lg font-semibold tracking-tight mt-6 mb-3">{children}</h4>;
+        img({ src, alt }) {
+            return (
+                <span className="block my-8 group">
+                    <span className="block relative rounded-lg overflow-hidden border border-white/10 bg-white/5 max-w-full shadow-sm transition-shadow hover:shadow-md">
+                        <img 
+                            src={src} 
+                            alt={alt} 
+                            className="w-full h-auto object-cover max-h-[400px] opacity-90 group-hover:opacity-100 transition-opacity"
+                            loading="lazy"
+                        />
+                    </span>s
+                    {alt && <span className="block text-xs text-neutral-500 mt-2 italic">{alt}</span>}
+                </span>
+            );
         },
         ul({ children }) {
-            return <ul className="list-disc pl-5 my-2 space-y-1">{children}</ul>;
+            return <ul className="list-disc ml-5 space-y-1.5 text-neutral-300 my-3 marker:text-neutral-500">{children}</ul>;
         },
         ol({ children }) {
-            return <ol className="list-decimal pl-5 my-2 space-y-1">{children}</ol>;
+            return <ol className="list-decimal ml-5 space-y-1.5 text-neutral-300 my-3 marker:text-neutral-500">{children}</ol>;
+        },
+        li({ children }) {
+            return <li className="pl-1">{children}</li>;
+        },
+        hr({ children }) {
+            // Opinionated: Replace visible HR with whitespace for a cleaner "editorial" look
+            return <div className="my-8" />;
+        },
+        p({ children }) {
+            return <p className="leading-relaxed text-neutral-200 [&:not(:first-child)]:mt-4">{children}</p>;
+        },
+        pre({ children   }) {
+            return <div className="not-prose my-4">{children}</div>;
+        },
+        h1({ children }) {
+            return <h1 className="text-2xl font-semibold tracking-tight text-white mt-6 mb-3">{children}</h1>;
+        },
+        h2({ children }) {
+            return <h2 className="text-lg font-semibold text-white mt-8 mb-2 tracking-tight">{children}</h2>;
+        },
+        h3({ children }) {
+            return <h3 className="text-base font-medium text-white/90 mt-6 mb-1">{children}</h3>;
+        },
+        h4({ children }) {
+            return <h4 className="text-sm font-medium text-white/80 mt-6 mb-1 uppercase tracking-wide">{children}</h4>;
         }
       }}
     >
       {safeContent}
     </ReactMarkdown>
+    </div>
   );
 });
 

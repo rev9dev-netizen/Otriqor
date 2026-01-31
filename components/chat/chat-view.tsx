@@ -12,13 +12,15 @@ import { ChatInput } from "@/components/chat/input/chat-input";
 import { ChatWelcome } from "@/components/chat/chat-welcome";
 import { MessageList } from "@/components/chat/message-list";
 import { ModelSelector } from "@/components/chat/model-selector";
+import { SettingsDialog } from "@/components/profile/settings-dialog";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Plus } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { CitationSidebar } from "@/components/chat/citation-sidebar";
+import { CanvasPanel } from "@/components/canvas/canvas-panel";
 
 interface ChatViewProps {
   chatId?: string;
@@ -30,6 +32,7 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
   const [model, setModel] = React.useState<"gpt-4o" | "mistral-large-latest">("mistral-large-latest");
   const [isLoading, setIsLoading] = React.useState(false);
   const [isTemp, setIsTemp] = React.useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const hasMessages = chatStore.thread.length > 0;
 
   // Sync Chat ID from URL/Prop
@@ -41,6 +44,13 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
         chatStore.reset(); 
     }
   }, [chatId]);
+
+  // Load User Preferences (Global)
+  React.useEffect(() => {
+    if (user) {
+        chatStore.loadPreferences();
+    }
+  }, [user]);
 
   // Auto-turn off Temp Mode if Chat Store is reset (e.g. clicking New Chat sidebar button)
   React.useEffect(() => {
@@ -61,8 +71,8 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
               
               if (messages && messages.length > 0) {
                  messages.forEach((msg: any) => {
-                     // We should ideally preserve timestamps if possible, but basic add is fine for now
-                     chatStore.addMessage(msg.role, msg.content, null, msg.id, msg.attachments, msg.citations);
+                     // Pass parent_id to reconstruct tree
+                     chatStore.addMessage(msg.role, msg.content, msg.parent_id, msg.id, msg.attachments, msg.citations);
                  });
               }
           } catch (e) {
@@ -118,67 +128,21 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
         // 3. Create Placeholder for Assistant Message
         const assistantMsgId = chatStore.addMessage("assistant", "");
         
-        // 4. Stream Response
-        try {
-            if (attachments.length > 0) {
-                chatStore.setIsAnalyzing(true);
-                // Simulate analysis delay (1.5s per file, max 4s)
-                const delay = Math.min(attachments.length * 1500, 4000);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                chatStore.setIsAnalyzing(false);
-            }
+        // 4. Stream Response & Save
+        await generateResponse(assistantMsgId, !isTemp && currentChatId ? currentChatId : undefined);
 
-            chatStore.setIsGenerating(true);
-            const stream = modelRouter.streamChat(model as any, chatStore.thread);
-            let accumulatedContent = "";
-            
-            for await (const chunk of stream) {
-                if (chunk.type === "text") {
-                    accumulatedContent += chunk.content;
-                    chatStore.updateMessageContent(assistantMsgId, accumulatedContent);
-                } else if (chunk.type === "usage") {
-                    chatStore.updateMessageStats(assistantMsgId, chunk.stats);
-                } else if (chunk.type === "tool_result") {
-                    // Refactored: Attach citations directly to Assistant Message
-                    try {
-                        const searchResults = JSON.parse(chunk.content);
-                        if (Array.isArray(searchResults)) {
-                            chatStore.updateMessageCitations(assistantMsgId, searchResults);
-                        }
-                    } catch (e) {
-                         console.error("Failed to parse tool result for citations", e);
+        // 5. Smart Title Gen (Fire and Forget) - Moved after generation
+        if (!isTemp && currentChatId && chatStore.thread.length <= 6) { 
+            (async () => {
+                try {
+                    const newTitle = await modelRouter.generateTitle(model as any, chatStore.thread);
+                    if (newTitle && newTitle !== "New Chat") {
+                        await updateChatTitle(currentChatId!, newTitle);
                     }
-                } else if (chunk.type === "tool_call") {
-                    // Store tool calls so history reconstruction works
-                    chatStore.updateMessageToolCalls(assistantMsgId, [chunk.tool_call]);
+                } catch (e) {
+                    console.error("Title Auto-Gen Failed:", e);
                 }
-            }
-        } finally {
-            chatStore.setIsGenerating(false);
-            chatStore.setIsAnalyzing(false);
-        }
-
-        // 5. Save Assistant Message (Only if NOT Temp)
-        if (!isTemp) {
-            const assistantMsgNode = chatStore.messages.get(assistantMsgId);
-            if (assistantMsgNode) {
-                await saveMessage(currentChatId!, assistantMsgNode);
-
-                // 6. Smart Title Gen (Fire and Forget)
-                // Trigger if thread is short (e.g. first 2 turns) to rename "New Chat"
-                if (chatStore.thread.length <= 6) { 
-                    (async () => {
-                        try {
-                            const newTitle = await modelRouter.generateTitle(model as any, chatStore.thread);
-                            if (newTitle && newTitle !== "New Chat") {
-                                await updateChatTitle(currentChatId!, newTitle);
-                            }
-                        } catch (e) {
-                            console.error("Title Auto-Gen Failed:", e);
-                        }
-                    })();
-                }
-            }
+            })();
         }
 
     } catch (error) {
@@ -194,35 +158,89 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
 
   // 7. Regenerate / Edit Logic
   const handleRegenerate = async (msgId: string, instructions?: string) => {
-    // For now simple in-place regeneration
-    chatStore.updateMessageContent(msgId, ""); // Clear
-    chatStore.setIsGenerating(true);
-    // Note: We need to properly trigger the stream again from the previous context.
-    // Ideally we find the sub-thread leading to this message.
-    // Currently modelRouter.streamChat takes the WHOLE thread.
-    // If we clear the last AI message, the thread is [User, User, ..., User, (Empty AI)].
-    // It works perfectly for the last message.
+    // Versioning: Create a sibling for the ASSISTANT message (AI retry)
+    // If msgId is the assistant message, we branch from IT? No, we branch from its PARENT's other child.
+    // Actually, createVersion(msgId, "") creates a sibling of msgId.
     
-    // If we want instructions (e.g. "Add detail"), we should probably append a temporary system user message?
-    // For MVP, we just retry.
-    try {
-        const stream = modelRouter.streamChat(model as any, chatStore.thread);
-        let accumulatedContent = "";
-        for await (const chunk of stream) {
-            if (chunk.type === "text") {
-                accumulatedContent += chunk.content;
-                chatStore.updateMessageContent(msgId, accumulatedContent);
-            } else if (chunk.type === "usage") {
-                chatStore.updateMessageStats(msgId, chunk.stats);
-            }
-        }
-    } finally {
-        chatStore.setIsGenerating(false);
+    // 1. Create new empty Assistant node as sibling of current one
+    const newVersionId = chatStore.createVersion(msgId, "");
+    
+    if (newVersionId) {
+        // 2. Stream into this new version
+        await generateResponse(newVersionId, chatId);
     }
   };
 
   const handleEdit = async (msgId: string, newContent: string) => {
-      chatStore.updateMessageContent(msgId, newContent);
+      // Versioning: Create a new sibling node with the new content
+      const newNodeId = chatStore.createVersion(msgId, newContent);
+      
+      if (newNodeId) {
+          // Save User Version to DB
+          if (chatId) {
+              const newNode = chatStore.messages.get(newNodeId);
+              if (newNode) await saveMessage(chatId, newNode);
+          }
+
+          // Trigger AI response for this new branch
+          // 1. Create Placeholder for Assistant Message (as child of new node)
+          const assistantMsgId = chatStore.addMessage("assistant", "", newNodeId);
+          
+          // 2. Stream Response (Reuse logic?)
+          // We need to call a "stream" function. Let's extract the stream logic or duplicate for now.
+          // Ideally: handleGeneration(assistantMsgId)
+          await generateResponse(assistantMsgId, chatId);
+      }
+  };
+
+  // Extract generation logic
+  const generateResponse = async (assistantMsgId: string, saveToChatId?: string) => {
+      try {
+            chatStore.setIsGenerating(true);
+            const stream = modelRouter.streamChat(model as any, chatStore.thread);
+            let accumulatedContent = "";
+            
+            for await (const chunk of stream) {
+                if (chunk.type === "text") {
+                    accumulatedContent += chunk.content;
+                    chatStore.updateMessageContent(assistantMsgId, accumulatedContent);
+                } else if (chunk.type === "usage") {
+                    chatStore.updateMessageStats(assistantMsgId, chunk.stats);
+                } else if (chunk.type === "tool_result") {
+                     try {
+                        chatStore.updateMessageToolResults(assistantMsgId, {
+                            role: "tool",
+                            tool_call_id: chunk.tool_call_id,
+                            name: chunk.name,
+                            content: chunk.content
+                        });
+                        const searchResults = JSON.parse(chunk.content);
+                        if (Array.isArray(searchResults)) {
+                            chatStore.updateMessageCitations(assistantMsgId, searchResults);
+                        }
+                    } catch (e) {
+                         console.error("Failed to parse tool result for citations", e);
+                    }
+                } else if (chunk.type === "tool_call") {
+                    chatStore.updateMessageToolCalls(assistantMsgId, [chunk.tool_call]);
+                }
+            }
+
+            // Save Final AI Message to DB
+            if (saveToChatId) {
+                const finalMsg = chatStore.messages.get(assistantMsgId);
+                if (finalMsg) {
+                    await saveMessage(saveToChatId, finalMsg);
+                }
+            }
+
+      } catch (error) {
+           console.error("Analysis Failed", error);
+           chatStore.addMessage("system", `Error: ${(error as any)?.message}`);
+      } finally {
+            chatStore.setIsGenerating(false);
+            chatStore.setIsAnalyzing(false);
+      }
   };
 
   const handleBranchChat = async (messageId: string) => {
@@ -253,8 +271,19 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
         {/* Floating Controls Layer (Z-Index High) */}
         <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-40 pointer-events-none">
             {/* Top Left: Model Selector (Visible always, floating) */}
-            <div className="pointer-events-auto">
+            <div className="pointer-events-auto flex items-center gap-2">
                 <ModelSelector currentModel={model as any} onModelChange={(m) => setModel(m as any)} />
+                <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-800" />
+                <button
+                    onClick={() => {
+                        chatStore.reset();
+                        router.push('/');
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-neutral-100/50 dark:bg-neutral-800/50 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-all border border-neutral-200/50 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300"
+                >
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden sm:inline-block">New Chat</span>
+                </button>
             </div>
 
             {/* Top Right: Temp Chat Toggle (Visible ONLY on New Chat Page) */}
@@ -306,12 +335,20 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
             </div>
         </div>
 
+
+
         {/* Right Sidebar - Citations */}
         {chatStore.activeCitations && (
              <div className="w-[400px] shrink-0 h-full border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-[#0c0c0c] transition-all duration-300 ease-in-out">
                   <CitationSidebar className="h-full" />
              </div>
         )}
+
+        {/* Canvas Panel (Rightmost) */}
+        <CanvasPanel />
+
+        
+        <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
     </div>
   );
 });

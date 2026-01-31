@@ -22,17 +22,50 @@ import { Input } from "@/components/ui/input";
 
 interface MessageActionsProps {
   isUser: boolean;
-  message: any; // Typed as any to avoid circular deps for now, or import type
+  message: any; 
   onEdit: () => void;
   onCopy: () => void;
   isCopied: boolean;
   onFeedback: (type: "like" | "dislike") => void;
   onBranch?: () => void;
+  // Versioning Props
+  currentVersion?: number;
+  totalVersions?: number;
+  onPrevVersion?: () => void;
+  onNextVersion?: () => void;
 }
 
-export function MessageActions({ isUser, message, onEdit, onCopy, isCopied, onFeedback, onBranch }: MessageActionsProps) {
+export function MessageActions({ 
+    isUser, message, onEdit, onCopy, isCopied, onFeedback, onBranch, 
+    currentVersion, totalVersions, onPrevVersion, onNextVersion
+}: MessageActionsProps) {
     const showLike = message.feedback === "like" || !message.feedback;
     const showDislike = message.feedback === "dislike" || !message.feedback;
+
+    const hasVersions = (totalVersions || 0) > 1;
+
+    // Navigation Component
+    const versionNav = (
+        <div className="flex items-center gap-1 mx-2 text-neutral-500 font-mono text-xs select-none">
+            <button 
+                onClick={onPrevVersion}
+                disabled={currentVersion === 1}
+                className="hover:text-neutral-300 disabled:opacity-30 disabled:hover:text-neutral-500 transition-colors"
+                aria-label="Previous version"
+            >
+                &lt;
+            </button>
+            <span>{currentVersion} / {totalVersions}</span>
+            <button 
+                onClick={onNextVersion}
+                disabled={currentVersion === totalVersions}
+                className="hover:text-neutral-300 disabled:opacity-30 disabled:hover:text-neutral-500 transition-colors"
+                aria-label="Next version"
+            >
+                &gt;
+            </button>
+        </div>
+    );
 
     if (isUser) {
         return (
@@ -40,6 +73,8 @@ export function MessageActions({ isUser, message, onEdit, onCopy, isCopied, onFe
                  "flex items-center gap-0.5 transition-opacity",
                  "justify-end opacity-0 group-hover:opacity-100" 
              )}>
+                {hasVersions && versionNav}
+                
                 <Button onClick={onCopy} variant="ghost" size="icon" className="h-7 w-7 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg">
                     {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
@@ -55,6 +90,8 @@ export function MessageActions({ isUser, message, onEdit, onCopy, isCopied, onFe
              "flex items-center gap-0.5 transition-opacity",
              "justify-start opacity-100" 
          )}>
+            {hasVersions && versionNav}
+
             <Button onClick={onCopy} variant="ghost" size="icon" className="h-7 w-7 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg">
                  {isCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </Button>
@@ -91,9 +128,7 @@ export function MessageActions({ isUser, message, onEdit, onCopy, isCopied, onFe
                 </Button>
             )}
 
-            {/* Share Dialog (Keep this or move into menu, keeping it separate for quick access for now, or maybe move to menu? User asked for 3-dot menu) */}
-            {/* Let's keep Share button but ADD the 3-dot menu for extra features */}
-            
+            {/* Share Dialog */}
             <Dialog>
                 <DialogTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-neutral-400 hover:text-white hover:bg-white/10 rounded-lg">
@@ -152,15 +187,16 @@ export function MessageActions({ isUser, message, onEdit, onCopy, isCopied, onFe
                         <Volume2 className="mr-2 h-4 w-4" />
                         <span>Read Aloud</span>
                     </DropdownMenuItem>
-
+                    
                     {/* 3. Branch Chat */}
-                    <DropdownMenuItem 
+                     <DropdownMenuItem 
                         onClick={() => onBranch?.()}
                         className="text-neutral-300 focus:text-white focus:bg-white/10 cursor-pointer"
                     >
                         <GitFork className="mr-2 h-4 w-4" />
                         <span>Branch from here</span>
                     </DropdownMenuItem>
+
                 </DropdownMenuContent>
             </DropdownMenu>
         </div>

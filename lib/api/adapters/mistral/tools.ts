@@ -29,5 +29,32 @@ export const tools = [
                 required: ["query"]
             }
         }
+    },
+    {
+        type: "function" as const,
+        function: {
+            name: "get_current_time",
+            description: "Get the current date and time. Useful for verifying 'today', 'now', or checking timezones (e.g. 'time in India').",
+            parameters: {
+                type: "object",
+                properties: {
+                     timezone: { type: "string", description: "Optional timezone abbreviation (IST, EST, etc) or IANA ID." }
+                }
+            }
+        }
+    },
+    {
+        type: "function" as const,
+        function: {
+            name: "get_weather",
+            description: "Get real-time weather and forecast for a specific city.",
+            parameters: {
+                type: "object",
+                properties: {
+                    city: { type: "string", description: "The city name (e.g. 'San Francisco', 'London')" }
+                },
+                required: ["city"]
+            }
+        }
     }
   ];

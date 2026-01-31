@@ -1,4 +1,7 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { StreamChunk } from "../../router";
+
 export const fetchStream = async (msgs: any[], toolsList: any[], apiKey: string, modelId: string) => {
     const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
         method: "POST",
@@ -12,9 +15,12 @@ export const fetchStream = async (msgs: any[], toolsList: any[], apiKey: string,
             tools: toolsList,
             tool_choice: toolsList ? "auto" : undefined,
             stream: true
-        })
+        }),
+        cache: "no-store",
+        // @ts-ignore - signal might be missing in some types
+        signal: undefined
     });
-
+    
     if (!response.ok) {
          let errorMessage = `Mistral Error ${response.status}`;
          try {
@@ -39,7 +45,7 @@ export const fetchStream = async (msgs: any[], toolsList: any[], apiKey: string,
     return response.body.getReader();
 };
 
-export const processStream = async function* (reader: ReadableStreamDefaultReader<Uint8Array>) {
+export const processStream = async function* (reader: ReadableStreamDefaultReader<Uint8Array>): AsyncGenerator<StreamChunk> {
     const decoder = new TextDecoder();
     let buffer = "";
 
@@ -63,7 +69,7 @@ export const processStream = async function* (reader: ReadableStreamDefaultReade
                       // 1. Tool Calls
                       if (delta?.tool_calls) {
                           const tc = delta.tool_calls[0];
-                          yield { type: "tool_call_chunk", tool_call: tc };
+                          yield { type: "tool_call_chunk", tool_call: tc } as StreamChunk;
                           continue;
                       }
 
@@ -80,7 +86,7 @@ export const processStream = async function* (reader: ReadableStreamDefaultReade
                           }
                           
                           if (text) {
-                              yield { type: "text", content: text };
+                              yield { type: "text", content: text } as StreamChunk;
                           }
                       }
                   } catch (e) {

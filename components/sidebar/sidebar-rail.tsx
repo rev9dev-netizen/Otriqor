@@ -1,9 +1,8 @@
 import * as React from "react";
-import { Plus, Settings, Sparkles, MessageSquare, LayoutGrid, Compass, Box } from "lucide-react";
+import { Settings, Sparkles, MessageSquare, LayoutGrid, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/hooks/use-auth";
-import { chatStore } from "@/lib/store/chat-store";
 import { useRouter, usePathname } from "next/navigation";
 
 // ... imports
@@ -78,25 +77,7 @@ export function SidebarRail({ onToggle, onOpenSettings }: SidebarRailProps) {
                  </TooltipProvider>
              ))}
              
-             <div className="h-px w-8 bg-white/10 my-1 mx-auto" />
-             
-             {/* New Chat Rail Button */}
-             <TooltipProvider>
-                 <Tooltip>
-                     <TooltipTrigger asChild>
-                        <button 
-                            onClick={() => {
-                                chatStore.reset();
-                                router.push('/');
-                            }}
-                            className="h-10 w-10 rounded-full border border-white/10 flex items-center justify-center text-white hover:border-white/30 hover:bg-white/5 transition-all mx-auto"
-                        >
-                            <Plus className="h-4 w-4" />
-                        </button>
-                     </TooltipTrigger>
-                     <TooltipContent side="right">New Chat</TooltipContent>
-                 </Tooltip>
-             </TooltipProvider>
+
          </div>
 
          <div className="flex-1" />

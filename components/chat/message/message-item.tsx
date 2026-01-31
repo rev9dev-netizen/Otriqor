@@ -18,9 +18,20 @@ interface MessageItemProps {
   onEdit?: (id: string, newContent: string) => void;
   onBranch?: (id: string) => void;
   citations?: SearchResult[];
+  // Versioning
+  currentVersion?: number;
+  totalVersions?: number;
+  onPrevVersion?: () => void;
+  onNextVersion?: () => void;
 }
 
-export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdit, onBranch, citations }: MessageItemProps) => {
+export const MessageItem = observer(({ 
+    message, isStreaming, onRegenerate, onEdit, onBranch, citations,
+    currentVersion, totalVersions, onPrevVersion, onNextVersion
+}: MessageItemProps) => {
+  if (citations && citations.length > 0) {
+      console.log(`MessageItem [${message.id}] received citations:`, citations.length);
+  }
   const isUser = message.role === "user";
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -98,9 +109,9 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
         {/* Message Bubble (Text) - Only render if there is content or loading state */}
         {(message.content || isStreaming || isAnalyzing) && (
             <div className={cn(
-                "rounded-3xl text-base transition-colors", 
+                "rounded-[18px] text-base transition-colors", 
                 isUser 
-                    ? "bg-[#f4f4f4] dark:bg-[#2f2f2f] text-gray-900 dark:text-gray-100 px-5 py-2.5 w-fit max-w-[85%]" 
+                    ? "bg-[#f4f4f4] dark:bg-[#2f2f2f] text-gray-900 dark:text-gray-100 px-4 py-1.5 w-fit max-w-[85%]" 
                     : "bg-transparent text-gray-900 dark:text-gray-100 px-0 w-full" 
             )}>
                 <div className="prose dark:prose-invert max-w-none prose-p:leading-7 prose-pre:my-2 prose-pre:bg-[#0d0d0d] prose-pre:rounded-xl">
@@ -135,6 +146,10 @@ export const MessageItem = observer(({ message, isStreaming, onRegenerate, onEdi
                           isCopied={isCopied}
                           onFeedback={handleFeedback}
                           onBranch={() => onBranch?.(message.id)}
+                          currentVersion={currentVersion}
+                          totalVersions={totalVersions}
+                          onPrevVersion={onPrevVersion}
+                          onNextVersion={onNextVersion}
                       />
                       {/* Citations Button - Now Inline */}
                       {citations && citations.length > 0 && (

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { SettingsDialog } from "@/components/profile/settings-dialog";
-import { ProviderSettingsDialog } from "@/components/settings/provider-settings-dialog";
+import { ProviderSettingsDialog } from "@/supabase/settings/provider-settings-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { chatStore } from "@/lib/store/chat-store";

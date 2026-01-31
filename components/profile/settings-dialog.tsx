@@ -1,22 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Settings, User, Shield, HardDrive, Moon, Sun, Laptop, Trash2, LogOut } from "lucide-react";
+import { Settings, User, Shield, HardDrive, Moon, Sun, Laptop, Trash2, LogOut, Check } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
-import TextareaAutosize from "react-textarea-autosize";
 import { cn } from "@/lib/utils";
+import { observer } from "mobx-react-lite";
+import { chatStore } from "@/lib/store/chat-store";
+import { PERSONALITIES } from "@/lib/api/personalities";
+import { updateUserPreferences } from "@/lib/supabase/db";
 
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export const SettingsDialog = observer(({ open, onOpenChange }: SettingsDialogProps) => {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -96,24 +99,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
              {/* PERSONALIZATION TAB */}
              <TabsContent value="personalization" className="mt-0 space-y-6">
                  <div>
-                    <h3 className="text-lg font-medium mb-4">Custom Instructions</h3>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                             <Label>What would you like ChatGPT to know about you to provide better responses?</Label>
-                             <TextareaAutosize 
-                                minRows={3} 
-                                className="w-full p-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm"
-                                placeholder="Where are you based? What do you do for work? What are your hobbies?" 
-                             />
-                        </div>
-                        <div className="space-y-2">
-                             <Label>How would you like ChatGPT to respond?</Label>
-                             <TextareaAutosize 
-                                minRows={3} 
-                                className="w-full p-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm"
-                                placeholder="Formal or casual? Long or short responses?" 
-                             />
-                        </div>
+                    <h3 className="text-lg font-medium mb-4">AI Personality</h3>
+                    <p className="text-sm text-neutral-500 mb-4">Choose the persona and tone for the AI assistant.</p>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {PERSONALITIES.map((p) => {
+                            const isSelected = chatStore.personality.id === p.id;
+                            return (
+                                <div 
+                                    key={p.id}
+                                    onClick={() => {
+                                        chatStore.setPersonality(p);
+                                        updateUserPreferences({ personalityId: p.id }).catch(console.error);
+                                    }}
+                                    className={cn(
+                                        "relative flex items-start gap-4 p-4 rounded-xl border cursor-pointer transition-all",
+                                        isSelected 
+                                            ? "border-primary bg-primary/5 dark:bg-primary/10" 
+                                            : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700 bg-white dark:bg-neutral-900"
+                                    )}
+                                >
+                                    <div className="text-2xl pt-0.5">{p.icon}</div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className={cn("font-medium text-sm", isSelected ? "text-primary" : "text-neutral-900 dark:text-neutral-100")}>
+                                                {p.name}
+                                            </span>
+                                            {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
+                                        </div>
+                                        <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
+                                            {p.description}
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                  </div>
              </TabsContent>
@@ -173,4 +193,4 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       </DialogContent>
     </Dialog>
   );
-}
+});

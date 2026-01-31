@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { makeAutoObservable, observable } from "mobx";
 import { v4 as uuidv4 } from "uuid";
+import { PERSONALITIES, DEFAULT_PERSONALITY, Personality } from "@/lib/api/personalities";
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
@@ -16,12 +17,14 @@ export interface MessageNode {
   id: string;
   parentId: string | null;
   childrenIds: string[];
+  activeChildId: string | null; // Track which child is "selected" for the path
   role: Role;
   name?: string;
   content: string;
   attachments?: Attachment[];
-  tool_calls?: any[]; // Store tool calls for history reconstruction
-  citations?: any; // JSONB storage for tool results/sources
+  tool_calls?: any[]; 
+  tool_results?: any[]; 
+  citations?: any; 
   createdAt: number;
   feedback?: "like" | "dislike" | null;
   stats?: {
@@ -35,8 +38,10 @@ export interface MessageNode {
 class ChatStore {
   messages = observable.map<string, MessageNode>(); // Explicit observable map
   headId: string | null = null;
+  rootChildrenIds: string[] = []; // Track root-level versions
   currentLeafId: string | null = null; // The active "latest" message
   chatId: string | null = null; // Supabase Chat ID
+  personality: Personality = DEFAULT_PERSONALITY; // AI Personality
   isGenerating: boolean = false;
 
   constructor() {
@@ -46,13 +51,31 @@ class ChatStore {
   setChatId(id: string) {
     this.chatId = id;
   }
+  
+  setPersonality(personality: Personality) {
+      this.personality = personality;
+  }
+
+  async loadPreferences() {
+      // Dynamic import to avoid circular dep if needed, or just standard import
+      const { fetchUserPreferences } = await import("@/lib/supabase/db");
+      const prefs = await fetchUserPreferences();
+      if (prefs && prefs.personalityId) {
+          const p = PERSONALITIES.find(x => x.id === prefs.personalityId);
+          if (p) {
+              // runInAction not needed if using autoObservable and called from action, 
+              // but since it's async await, we set directly. 
+              this.personality = p; 
+          }
+      }
+  }
 
   setIsGenerating(isGenerating: boolean) {
     this.isGenerating = isGenerating;
   }
 
   isAnalyzing: boolean = false;
-  isSearching: boolean = false; // Add search state
+  isSearching: boolean = false; 
   
   activeCitations: any[] | null = null;
   
@@ -72,32 +95,143 @@ class ChatStore {
   addMessage(role: Role, content: string, parentId: string | null = null, id: string | null = null, attachments?: Attachment[], citations?: any) {
     console.log("ChatStore.addMessage:", { role, content, attachments, citations });
     const messageId = id || uuidv4();
+    const effectiveParentId = parentId || this.currentLeafId;
+
+    // Special case: If this is the VERY first message explicitly (no parent, no current leaf), it's a root
+    // OR if explicit parentId is null (forcing a root)
+    const isRoot = parentId === null && (this.currentLeafId === null || role === "user"); 
+    // Actually, simple rule: if parentId is null, it's a root.
+    // BUT addMessage defaults parentId to currentLeafId.
+    // So if we WANT a root, we must pass null explicitly? 
+    // Let's stick to: if effectiveParentId is null, it's a root.
+
+    const finalParentId = effectiveParentId;
+
     const message: MessageNode = {
       id: messageId,
-      parentId: parentId || this.currentLeafId,
+      parentId: finalParentId,
       childrenIds: [],
+      activeChildId: null,
       role,
       content,
       attachments,
       citations,
       createdAt: Date.now(),
-      stats: undefined // Explicitly undefined initially
+      stats: undefined 
     };
 
     this.messages.set(messageId, message);
 
-    // If this is the first message (root)
-    if (!this.headId) {
-      this.headId = messageId;
-    } else if (message.parentId) {
-      const parent = this.messages.get(message.parentId);
+    if (finalParentId) {
+      // Child node
+      const parent = this.messages.get(finalParentId);
       if (parent) {
         parent.childrenIds.push(messageId);
+        parent.activeChildId = messageId; 
+      }
+    } else {
+      // Root node
+      this.rootChildrenIds.push(messageId);
+      // If we don't have a head yet, or we're adding a new root version?
+      // For addMessage (linear), usually we just set headId if empty.
+      if (!this.headId) {
+        this.headId = messageId;
       }
     }
 
     this.currentLeafId = messageId;
     return messageId;
+  }
+
+  // Create a new version (sibling) of a message
+  createVersion(nodeId: string, newContent: string): string | null {
+      const originalNode = this.messages.get(nodeId);
+      if (!originalNode) return null;
+
+      const newVersionId = uuidv4();
+      const newVersion: MessageNode = {
+          ...originalNode,
+          id: newVersionId,
+          childrenIds: [], 
+          activeChildId: null,
+          content: newContent,
+          createdAt: Date.now(),
+          stats: undefined,
+          tool_calls: undefined, 
+          tool_results: undefined,
+          citations: undefined
+      };
+
+      this.messages.set(newVersionId, newVersion);
+      
+      if (originalNode.parentId) {
+          // Standard case: has parent
+          const parent = this.messages.get(originalNode.parentId);
+          if (parent) {
+              parent.childrenIds.push(newVersionId);
+              parent.activeChildId = newVersionId;
+          }
+      } else {
+          // Root case: no parent
+          this.rootChildrenIds.push(newVersionId);
+          this.headId = newVersionId; // Switch active root
+      }
+
+      // Update global leaf
+      this.currentLeafId = newVersionId;
+      return newVersionId;
+  }
+
+  // Find the deepest active leaf from a given node
+  findActiveLeaf(startNodeId: string): string {
+      let current = this.messages.get(startNodeId);
+      while (current && current.activeChildId) {
+          const next = this.messages.get(current.activeChildId);
+          if (next) {
+              current = next;
+          } else {
+              break;
+          }
+      }
+      return current ? current.id : startNodeId;
+  }
+
+  navigateBranch(nodeId: string, direction: "prev" | "next") {
+      const node = this.messages.get(nodeId);
+      if (!node) return;
+
+      let siblings: string[] = [];
+      let currentIndex = -1;
+
+      if (node.parentId) {
+          const parent = this.messages.get(node.parentId);
+          if (parent) {
+              siblings = parent.childrenIds;
+          }
+      } else {
+          // Is Root
+          siblings = this.rootChildrenIds;
+      }
+
+      currentIndex = siblings.indexOf(nodeId);
+      if (currentIndex === -1) return;
+
+      const targetIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
+      
+      if (targetIndex >= 0 && targetIndex < siblings.length) {
+          const targetSiblingId = siblings[targetIndex];
+          
+          if (node.parentId) {
+              const parent = this.messages.get(node.parentId);
+              if (parent) parent.activeChildId = targetSiblingId;
+          } else {
+              // Switch Root
+              this.headId = targetSiblingId;
+          }
+
+          // Find the end of this branch (restore history state)
+          this.currentLeafId = this.findActiveLeaf(targetSiblingId);
+      }
   }
 
   // Get the full conversation thread from root to the current leaf
@@ -117,36 +251,6 @@ class ChatStore {
     return thread;
   }
 
-  // Branching: Switch to a different sibling node
-  navigateToSibling(nodeId: string, direction: "prev" | "next") {
-    const node = this.messages.get(nodeId);
-    if (!node || !node.parentId) return;
-
-    const parent = this.messages.get(node.parentId);
-    if (!parent) return;
-
-    const currentIndex = parent.childrenIds.indexOf(nodeId);
-    if (currentIndex === -1) return;
-
-    const targetIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
-    // Circular navigation or clamp? Let's clamp for now
-    if (targetIndex < 0 || targetIndex >= parent.childrenIds.length) return;
-
-    const targetSiblingId = parent.childrenIds[targetIndex];
-    
-    // We need to find the leaf of this new branch. 
-    // For simplicity in this v1, we just take the target sibling 
-    // and walk down its first child until the end.
-    let leaf = this.messages.get(targetSiblingId);
-    while (leaf && leaf.childrenIds.length > 0) {
-      leaf = this.messages.get(leaf.childrenIds[leaf.childrenIds.length - 1]);
-    }
-    
-    if (leaf) {
-      this.currentLeafId = leaf.id;
-    }
-  }
-
   updateMessageContent(id: string, content: string) {
     const message = this.messages.get(id);
     if (message) {
@@ -164,17 +268,17 @@ class ChatStore {
   updateMessageToolCalls(id: string, tool_calls: any[]) {
       const message = this.messages.get(id);
       if (message) {
-          // Flatten: If tool_calls passed is just one object, array-ify it
           const calls = Array.isArray(tool_calls) ? tool_calls : [tool_calls];
-          // Determine if we append or set. For simplicity, set if first, append if streaming multiple?
-          // Mistral usually sends one tool call per turn or array.
-          // Since we yield the full tool call object from adapter when it's done, we can probably just set it or push.
-          // Let's safe-guard:
           const existing = message.tool_calls || [];
-          // Avoid duplicates if we yield multiple times (we yield ONCE per tool execution in loop)
-          // Actually adapter yields { type: "tool_call", tool_call: ... }
-          // We can append.
           this.messages.set(id, { ...message, tool_calls: [...existing, ...calls] });
+      }
+  }
+
+  updateMessageToolResults(id: string, tool_result: any) {
+      const message = this.messages.get(id);
+      if (message) {
+          const existing = message.tool_results || [];
+          this.messages.set(id, { ...message, tool_results: [...existing, tool_result] });
       }
   }
 

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ProviderSettings } from "@/components/settings/provider-settings";
+import { ProviderSettings } from "@/supabase/settings/provider-settings";
 
 export default function ModelsPage() {
   return (

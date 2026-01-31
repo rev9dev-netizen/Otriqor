@@ -192,3 +192,41 @@ export async function fetchUserGallery() {
   
   return data;
 }
+
+export async function updateUserPreferences(preferences: any) {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Upsert profile
+    const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+            id: user.id, 
+            preferences, 
+            updated_at: new Date().toISOString() 
+        });
+
+    if (error) {
+        console.error("Failed to update preferences", error);
+        throw error;
+    }
+}
+
+export async function fetchUserPreferences() {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await supabase
+        .from('profiles')
+        .select('preferences')
+        .eq('id', user.id)
+        .single();
+    
+    if (error && error.code !== 'PGRST116') { // Ignore not found
+        console.error("Failed to fetch preferences", error);
+    }
+
+    return data?.preferences || null;
+}
