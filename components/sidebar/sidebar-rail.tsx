@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Settings, Sparkles, MessageSquare, LayoutGrid, Box } from "lucide-react";
+import { Settings, Sparkles, MessageSquare, LayoutGrid, Box, BrainCog, Images, Cable, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/lib/hooks/use-auth";
@@ -19,24 +19,34 @@ export function SidebarRail({ onToggle, onOpenSettings }: SidebarRailProps) {
   
   const railItems = [
       { 
-          icon: MessageSquare, 
+          icon: MessageCircle, 
           label: "Chats", 
           // Active if root or starts with /c/, but strictly NOT /library or /models
           active: pathname === '/' || (pathname?.startsWith('/c/') && !pathname?.startsWith('/library') && !pathname?.startsWith('/models')),
           onClick: onToggle 
       },
-      {
-          icon: Box,
-          label: "Models",
-          active: pathname === '/models',
-          onClick: () => router.push('/models')
-      },
+    //   {
+    //       icon: BrainCog,
+    //       label: "Models",
+    //       active: pathname === '/models',
+    //       onClick: () => router.push('/models')
+    //   },
       { 
-          icon: LayoutGrid, 
+          icon: Images, 
           label: "Library", 
           active: pathname === '/library',
           onClick: () => router.push('/library')
       },
+      {
+          icon: Cable, // Placeholder for Apps
+          label: "Connectors",
+          active: false,
+          onClick: () => {
+             import("@/lib/store/chat-store").then(({ chatStore }) => {
+                 chatStore.setIsActiveIntegrationOpen(true);
+             });
+          }
+      }
       // ...
   ];
 

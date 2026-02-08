@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Copy, Edit2, Archive, Trash2, Pin, MoreHorizontal, Sparkles, Compass, LayoutGrid, MessageSquare, Plus, Search, Settings, Box } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -35,8 +35,12 @@ interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
   onToggle: () => void;
 }
 
-export function Sidebar({ className, isOpen, onToggle }: SidebarProps) {
+import { observer } from "mobx-react-lite";
+// ... imports
+
+export const Sidebar = observer(({ className, isOpen, onToggle }: SidebarProps) => {
   const router = useRouter(); 
+  const pathname = usePathname(); // Reactive active path
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
   const [isProviderSettingsOpen, setIsProviderSettingsOpen] = React.useState(false);
   const [chats, setChats] = React.useState<any[]>([]);
@@ -48,11 +52,7 @@ export function Sidebar({ className, isOpen, onToggle }: SidebarProps) {
   const [renameTitle, setRenameTitle] = React.useState("");
   
   // Active Chat Logic
-  // We can get active chat from URL param using useParams or just chatStore if synced
-  // But router.push usage implies we might need to parse path
-  // simpler for now:
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-  const activeChatId = currentPath.split('/c/')[1];
+  const activeChatId = pathname?.match(/\/c\/([^/]+)/)?.[1];
 
   // Fetch Chats
   React.useEffect(() => {
@@ -202,6 +202,8 @@ export function Sidebar({ className, isOpen, onToggle }: SidebarProps) {
                  <div className="flex flex-col pb-2">
                      {chats.map(chat => {
                          const isActive = activeChatId === chat.id;
+                         const displayTitle = (isActive && chatStore.title) ? chatStore.title : (chat.title || "New Chat");
+
                          return (
                              // Group allows styling based on children state via group-has logic (if configured) or just group-hover
                              // We use opacity logic on the specific elements
@@ -210,12 +212,14 @@ export function Sidebar({ className, isOpen, onToggle }: SidebarProps) {
                                     href={`/c/${chat.id}`}
                                     className={cn(
                                         "flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg transition-colors cursor-pointer w-full min-w-0 pr-8", // Reduced py, kept px-3. Added spacing for menu.
-                                        isActive ? "bg-white/10 text-white" : "hover:bg-white/5 text-neutral-400 hover:text-neutral-200 group-has-[[data-state=open]]:bg-white/5 group-has-[[data-state=open]]:text-neutral-200"
+                                        isActive 
+                                            ? "bg-white/10 text-white shadow-sm ring-1 ring-white/5" // Active: Visible BG
+                                            : "hover:bg-white/5 text-neutral-400 hover:text-neutral-200 group-has-[[data-state=open]]:bg-white/5 group-has-[[data-state=open]]:text-neutral-200"
                                     )}
                                  >
                                     <div className="w-0 flex-1">
                                         <span className={cn("block truncate font-medium text-sm", isActive ? "text-white" : "text-neutral-300 group-hover:text-white" )}>
-                                            {chat.title || "New Chat"}
+                                            {displayTitle}
                                         </span>
                                     </div>
                                  </Link>
@@ -257,51 +261,52 @@ export function Sidebar({ className, isOpen, onToggle }: SidebarProps) {
                      })}
                  </div>
              </ScrollArea>
+             
+             {/* ... Dialogs same as before ... */}
+              <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+       <ProviderSettingsDialog open={isProviderSettingsOpen} onOpenChange={setIsProviderSettingsOpen} />
+ 
+       {/* Delete Confirmation Dialog */}
+       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+           <DialogContent className="bg-[#1e1e1e] border-white/10 text-white sm:max-w-md">
+               <DialogHeader>
+                   <DialogTitle>Delete Chat?</DialogTitle>
+                   <DialogDescription className="text-neutral-400">
+                       This action cannot be undone. This will permanently delete the chat history.
+                   </DialogDescription>
+               </DialogHeader>
+               <DialogFooter className="gap-2 sm:justify-end">
+                   <Button variant="ghost" onClick={() => setDeleteId(null)} className="text-neutral-400 hover:text-white hover:bg-white/5">Cancel</Button>
+                   <Button variant="destructive" onClick={handleDelete} className="bg-red-500 hover:bg-red-600 text-white">Delete</Button>
+               </DialogFooter>
+           </DialogContent>
+       </Dialog>
+       
+       {/* Rename Dialog (Simple implementation) */}
+       <Dialog open={!!renameId} onOpenChange={(open) => !open && setRenameId(null)}>
+           <DialogContent className="bg-[#1e1e1e] border-white/10 text-white sm:max-w-md">
+               <DialogHeader>
+                   <DialogTitle>Rename Chat</DialogTitle>
+               </DialogHeader>
+               <div className="py-4">
+                   <input 
+                     value={renameTitle}
+                     onChange={(e) => setRenameTitle(e.target.value)}
+                     className="w-full bg-black/20 border border-white/10 rounded-md p-2 text-white focus:outline-none focus:border-indigo-500"
+                     placeholder="Chat Title"
+                     onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                   />
+               </div>
+               <DialogFooter>
+                   <Button onClick={handleRename} className="bg-indigo-600 hover:bg-indigo-700 text-white">Save</Button>
+               </DialogFooter>
+           </DialogContent>
+       </Dialog>
 
-             <div className="h-4" />
           </motion.div>
       )}
       </AnimatePresence>
 
-      <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
-      <ProviderSettingsDialog open={isProviderSettingsOpen} onOpenChange={setIsProviderSettingsOpen} />
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
-          <DialogContent className="bg-[#1e1e1e] border-white/10 text-white sm:max-w-md">
-              <DialogHeader>
-                  <DialogTitle>Delete Chat?</DialogTitle>
-                  <DialogDescription className="text-neutral-400">
-                      This action cannot be undone. This will permanently delete the chat history.
-                  </DialogDescription>
-              </DialogHeader>
-              <DialogFooter className="gap-2 sm:justify-end">
-                  <Button variant="ghost" onClick={() => setDeleteId(null)} className="text-neutral-400 hover:text-white hover:bg-white/5">Cancel</Button>
-                  <Button variant="destructive" onClick={handleDelete} className="bg-red-500 hover:bg-red-600 text-white">Delete</Button>
-              </DialogFooter>
-          </DialogContent>
-      </Dialog>
-      
-      {/* Rename Dialog (Simple implementation) */}
-      <Dialog open={!!renameId} onOpenChange={(open) => !open && setRenameId(null)}>
-          <DialogContent className="bg-[#1e1e1e] border-white/10 text-white sm:max-w-md">
-              <DialogHeader>
-                  <DialogTitle>Rename Chat</DialogTitle>
-              </DialogHeader>
-              <div className="py-4">
-                  <input 
-                    value={renameTitle}
-                    onChange={(e) => setRenameTitle(e.target.value)}
-                    className="w-full bg-black/20 border border-white/10 rounded-md p-2 text-white focus:outline-none focus:border-indigo-500"
-                    placeholder="Chat Title"
-                    onKeyDown={(e) => e.key === 'Enter' && handleRename()}
-                  />
-              </div>
-              <DialogFooter>
-                  <Button onClick={handleRename} className="bg-indigo-600 hover:bg-indigo-700 text-white">Save</Button>
-              </DialogFooter>
-          </DialogContent>
-      </Dialog>
     </motion.div>
   );
-}
+});

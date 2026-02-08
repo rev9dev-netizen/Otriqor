@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { MessageNode, chatStore } from "@/lib/store/chat-store";
@@ -10,6 +11,8 @@ import { MessageActions } from "./message-actions";
 import { MessageContent } from "./message-content";
 import { FileText, Globe } from "lucide-react";
 import { SearchResult } from "@/lib/tools/web-search";
+import { ReasoningDisplay } from "@/components/chat/reasoning-display";
+// import { toolActivityStore } from "@/lib/store/tool-activity-store"; // Removed
 
 interface MessageItemProps {
   message: MessageNode;
@@ -106,12 +109,24 @@ export const MessageItem = observer(({
             </div>
         )}
 
+        {/* Reasoning Display (Persisted) */}
+        {message.reasoningSteps && message.reasoningSteps.length > 0 && (
+             <div className={cn("w-full max-w-[85%] mb-2 opacity-90 hover:opacity-100 transition-opacity", isUser ? "self-end" : "self-start")}>
+                 <ReasoningDisplay 
+                     steps={message.reasoningSteps}
+                     connectedTo={message.activeIntegration}
+                     citations={message.citations}
+                     isCollapsed={!isStreaming && message.reasoningSteps.every(s => s.status === 'done')} // Auto-expand if active
+                 />
+             </div>
+        )}
+
         {/* Message Bubble (Text) - Only render if there is content or loading state */}
         {(message.content || isStreaming || isAnalyzing) && (
             <div className={cn(
                 "rounded-[18px] text-base transition-colors", 
                 isUser 
-                    ? "bg-[#f4f4f4] dark:bg-[#2f2f2f] text-gray-900 dark:text-gray-100 px-4 py-1.5 w-fit max-w-[85%]" 
+                    ? "bg-primary text-primary-foreground px-4 py-1.5 w-fit max-w-[85%]" 
                     : "bg-transparent text-gray-900 dark:text-gray-100 px-0 w-full" 
             )}>
                 <div className="prose dark:prose-invert max-w-none prose-p:leading-7 prose-pre:my-2 prose-pre:bg-[#0d0d0d] prose-pre:rounded-xl">
@@ -125,6 +140,7 @@ export const MessageItem = observer(({
                         isStreaming={isStreaming}
                         isAnalyzing={isAnalyzing}
                         isSearching={isSearching}
+                        hasReasoning={message.reasoningSteps && message.reasoningSteps.length > 0}
                         // Attachments handled in parent now
                     />
                 </div>

@@ -1,41 +1,64 @@
-import { Tool, ToolDefinition } from "./types";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-class Registry {
-    private tools = new Map<string, Tool>();
+export interface ToolDefinition {
+    name: string;
+    description: string;
+    parameters: any;
+    execute: (args: any) => Promise<any>;
+}
 
-    register(tool: Tool) {
-        if (this.tools.has(tool.definition.name)) {
-            console.warn(`Tool '${tool.definition.name}' is already registered. Overwriting.`);
-        }
-        this.tools.set(tool.definition.name, tool);
+export class ToolRegistry {
+    private tools: Map<string, ToolDefinition> = new Map();
+
+    /**
+     * Register a tool
+     */
+    register(tool: ToolDefinition) {
+        this.tools.set(tool.name, tool);
     }
 
-    getTool(name: string): Tool | undefined {
-        return this.tools.get(name);
+    /**
+     * Check if a tool exists
+     */
+    has(name: string): boolean {
+        return this.tools.has(name);
     }
 
-    getDefinitions(): { type: "function"; function: ToolDefinition }[] {
-        return Array.from(this.tools.values()).map(t => ({
-            type: "function",
-            function: t.definition
-        }));
+    /**
+     * Get tool definitions formatted for API calls
+     */
+    async getDefinitions(): Promise<ToolDefinition[]> {
+        const definitions = Array.from(this.tools.values());
+        console.log(`[ToolRegistry] Returning ${definitions.length} tools`);
+        return definitions;
     }
 
-    async execute(name: string, args: any, context?: any): Promise<any> {
+    /**
+     * Execute a tool by name
+     */
+    async execute(name: string, args: any): Promise<any> {
         const tool = this.tools.get(name);
         if (!tool) {
-            throw new Error(`Tool '${name}' not found.`);
+            throw new Error(`Tool "${name}" not found in registry`);
         }
-        try {
-            return await tool.execute(args, context);
-        } catch (error) {
-            console.error(`Error executing tool '${name}':`, error);
-            return {
-                error: error instanceof Error ? error.message : "Unknown error",
-                content: JSON.stringify({ error: "Tool execution failed" })
-            };
-        }
+        
+        console.log(`[ToolRegistry] Executing ${name}`);
+        return tool.execute(args);
+    }
+
+    /**
+     * Get all tool names
+     */
+    getToolNames(): string[] {
+        return Array.from(this.tools.keys());
+    }
+
+    /**
+     * Clear all tools
+     */
+    clear() {
+        this.tools.clear();
     }
 }
 
-export const toolRegistry = new Registry();
+export const toolRegistry = new ToolRegistry();

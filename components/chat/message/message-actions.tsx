@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as React from "react";
+import { canvasStore } from "@/lib/store/canvas-store";
 import { Button } from "@/components/ui/button";
-import { Copy, Pencil, ThumbsUp, ThumbsDown, Share, Check, MoreHorizontal, Volume2, GitFork } from "lucide-react";
+import { Copy, Pencil, ThumbsUp, ThumbsDown, Share, Check, MoreHorizontal, Volume2, GitFork, FileCode } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -188,6 +189,8 @@ export function MessageActions({
                         <span>Read Aloud</span>
                     </DropdownMenuItem>
                     
+
+
                     {/* 3. Branch Chat */}
                      <DropdownMenuItem 
                         onClick={() => onBranch?.()}
@@ -195,6 +198,15 @@ export function MessageActions({
                     >
                         <GitFork className="mr-2 h-4 w-4" />
                         <span>Branch from here</span>
+                    </DropdownMenuItem>
+
+                    {/* 4. Open in Canvas */}
+                    <DropdownMenuItem 
+                        onClick={() => canvasStore.openWithContent(message.content)}
+                        className="text-neutral-300 focus:text-white focus:bg-white/10 cursor-pointer"
+                    >
+                        <FileCode className="mr-2 h-4 w-4" />
+                        <span>Open in Canvas</span>
                     </DropdownMenuItem>
 
                 </DropdownMenuContent>

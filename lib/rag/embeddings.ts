@@ -1,7 +1,7 @@
 import { Mistral } from "@mistralai/mistralai";
 
 const client = new Mistral({
-  apiKey: process.env.NEXT_PUBLIC_MISTRAL_API_KEY || "",
+  apiKey: process.env.MISTRAL_API_KEY || "",
 });
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {

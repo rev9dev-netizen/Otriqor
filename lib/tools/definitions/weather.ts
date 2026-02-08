@@ -4,7 +4,7 @@ import { getWeather } from "../weather";
 export const weatherTool: Tool = {
     definition: {
         name: "get_weather",
-        description: "Get real-time weather and forecast for a specific city.",
+        description: "Get real-time weather. YOU MUST provide a 1-sentence summary of the condition/temp along with the weather widget.",
         parameters: {
             type: "object",
             properties: {

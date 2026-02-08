@@ -212,7 +212,7 @@ export function ProviderSettingsDialog({ open, onOpenChange }: { open: boolean; 
                                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-500" />
                                       <input 
                                           placeholder="Search Models..." 
-                                          className="bg-[#121212] border border-white/10 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white focus:outline-none focus:border-white/20 w-48"
+                                          className="bg-[#121212] border border-white/10 rounded-lg py-1.5 pl-8 pr-3 text-xl text-white focus:outline-none focus:border-white/20 w-48"
                                       />
                                   </div>
                                   <Button 
@@ -250,7 +250,7 @@ export function ProviderSettingsDialog({ open, onOpenChange }: { open: boolean; 
                                  providerModels.map((model) => (
                                      <div key={model.id} className="flex items-center justify-between p-4 bg-[#121212] border border-white/5 rounded-xl hover:border-white/10 transition-all group">
                                          <div className="flex items-center gap-4">
-                                             <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-500">
+                                             <div className="h-10 w-10 rounded-lg bg-gray-500/10 flex items-center justify-center text-gray-500">
                                                  <img src={providers[model.provider].logo} alt={model.name} className="h-6 w-6 object-contain" />
                                              </div>
                                              <div>

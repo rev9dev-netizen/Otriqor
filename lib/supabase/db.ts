@@ -129,7 +129,9 @@ export async function fetchUserChats() {
     
   if (error) throw error;
   return data;
-}
+}``
+
+
 
 // Old fetchMessages replaced by recursive version above
 export async function updateChatTitle(chatId: string, title: string) {
@@ -143,6 +145,33 @@ export async function updateChatTitle(chatId: string, title: string) {
     console.error("updateChatTitle DB Error:", error);
     throw error;
   }
+}
+
+export async function updateChatCanvasState(chatId: string, canvasState: any) {
+    const supabase = createClient();
+    const { error } = await supabase
+        .from('chats')
+        .update({ 
+            canvas_state: canvasState,
+            updated_at: new Date().toISOString() 
+        })
+        .eq('id', chatId);
+
+    if (error) {
+        console.error("updateChatCanvasState DB Error:", error);
+        throw error;
+    }
+}
+
+export async function fetchChatCanvasState(chatId: string) {
+    const supabase = createClient();
+    const { data } = await supabase
+        .from('chats')
+        .select('canvas_state')
+        .eq('id', chatId)
+        .maybeSingle();
+    
+    return data?.canvas_state || null;
 }
 
 export async function deleteChat(chatId: string) {
@@ -218,15 +247,11 @@ export async function fetchUserPreferences() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
 
-    const { data, error } = await supabase
+    const { data } = await supabase
         .from('profiles')
         .select('preferences')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
     
-    if (error && error.code !== 'PGRST116') { // Ignore not found
-        console.error("Failed to fetch preferences", error);
-    }
-
     return data?.preferences || null;
 }

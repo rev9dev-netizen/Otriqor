@@ -1,11 +1,9 @@
 "use client"
 
-"use client"
-
 /* eslint-disable @next/next/no-img-element */
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { Search, Plus, AlertCircle, Eye, Brain, Globe, Box, RefreshCw, Sparkles, Terminal } from "lucide-react";
+import { Search, Plus, AlertCircle, Eye, Brain, Globe, Box, RefreshCw, Sparkles, Terminal, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,16 +16,15 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { useProviderLogos } from "@/hooks/use-provider-logos";
+import { ModelConfigDialog } from "./model-config-dialog";
 
-// ... imports
-
-// Helper for initial provider list - static info only
-const STATIC_PROVIDERS = [
-  { id: "mistral", name: "Mistral AI", icon: providers.mistral.logo },
-  { id: "openai", name: "OpenAI", icon: providers.openai.logo },
-  { id: "anthropic", name: "Anthropic", icon: providers.anthropic.logo },
-  { id: "google", name: "Google Gemini", icon: providers.gemini.logo },
-];
+// Helper for initial provider list - dynamic from config
+const ALL_PROVIDERS = Object.entries(providers).map(([id, data]) => ({
+  id, 
+  name: data.name, 
+  icon: data.logo 
+}));
 
 type Tab = "all" | "chat" | "vision" | "code";
 
@@ -35,17 +32,22 @@ export function ProviderSettings() {
   const [selectedProviderId, setSelectedProviderId] = React.useState("mistral");
   const [fetchedModels, setFetchedModels] = React.useState<Model[]>([]);
   const [isLoadingModels, setIsLoadingModels] = React.useState(false);
-  const [disabledModelIds, setDisabledModelIds] = React.useState<Set<string>>(new Set());
+  const [enabledModelIds, setEnabledModelIds] = React.useState<Set<string>>(new Set());
   const [enabledProviderIds, setEnabledProviderIds] = React.useState<Set<string>>(new Set(["mistral"])); // Default Mistral enabled
   const [activeTab, setActiveTab] = React.useState<Tab>("all");
   const [testModelId, setTestModelId] = React.useState<string>("");
 
+  // Dynamic Logos Hook
+  const { getLogo } = useProviderLogos();
+
+  // State for overrides
+  const [modelOverrides, setModelOverrides] = React.useState<Record<string, Partial<Model>>>({});
+  const [editingModel, setEditingModel] = React.useState<Model | null>(null);
+  const [isConfigOpen, setIsConfigOpen] = React.useState(false);
+
   // Load persistence
   React.useEffect(() => {
       try {
-          const savedModels = localStorage.getItem("disabled_models");
-          if (savedModels) setDisabledModelIds(new Set(JSON.parse(savedModels)));
-
           const savedProviders = localStorage.getItem("enabled_providers");
           if (savedProviders) {
               setEnabledProviderIds(new Set(JSON.parse(savedProviders)));
@@ -53,18 +55,33 @@ export function ProviderSettings() {
               // Initial default if nothing saved: Mistral only
               setEnabledProviderIds(new Set(["mistral"]));
           }
+
+          const savedOverrides = localStorage.getItem("model_overrides");
+          if (savedOverrides) {
+              setModelOverrides(JSON.parse(savedOverrides));
+          }
       } catch(e) { console.error("Failed to parse settings", e); }
   }, []);
 
   // Save persistence
-  const updateDisabledModels = (newSet: Set<string>) => {
-      setDisabledModelIds(newSet);
-      localStorage.setItem("disabled_models", JSON.stringify(Array.from(newSet)));
+  const updateEnabledModels = (newSet: Set<string>) => {
+      setEnabledModelIds(newSet);
+      localStorage.setItem("enabled_models", JSON.stringify(Array.from(newSet)));
   };
 
   const updateEnabledProviders = (newSet: Set<string>) => {
       setEnabledProviderIds(newSet);
       localStorage.setItem("enabled_providers", JSON.stringify(Array.from(newSet)));
+  };
+
+  const handleSaveModelConfig = (id: string, updates: Partial<Model>) => {
+     const newOverrides = {
+         ...modelOverrides,
+         [id]: updates
+     };
+     setModelOverrides(newOverrides);
+     localStorage.setItem("model_overrides", JSON.stringify(newOverrides));
+     toast.success("Model configuration saved");
   };
 
   const toggleProvider = (id: string) => {
@@ -86,20 +103,15 @@ export function ProviderSettings() {
       }
       updateEnabledProviders(newSet);
       toast.success(isEnabling ? "Provider Enabled" : "Provider Disabled", {
-          description: `${isEnabling ? "Enabled" : "Disabled"} ${STATIC_PROVIDERS.find(p => p.id === id)?.name || id}. Settings saved.`
+          description: `${isEnabling ? "Enabled" : "Disabled"} ${ALL_PROVIDERS.find(p => p.id === id)?.name || id}. Settings saved.`
       });
   };
 
   // Current view state
-  const selectedProvider = STATIC_PROVIDERS.find(p => p.id === selectedProviderId) || STATIC_PROVIDERS[0];
+  const selectedProvider = ALL_PROVIDERS.find(p => p.id === selectedProviderId) || ALL_PROVIDERS[0];
   const isSelectedProviderEnabled = enabledProviderIds.has(selectedProvider.id);
 
-  // Auto-fetch models when provider changes
-  React.useEffect(() => {
-      fetchModels();
-  }, [selectedProviderId]);
-
-  const fetchModels = async () => {
+  const fetchModels = React.useCallback(async () => {
       setIsLoadingModels(true);
       try {
           const res = await fetch("/api/models");
@@ -116,30 +128,46 @@ export function ProviderSettings() {
               const modelsList = Array.from(uniqueModels.values());
               setFetchedModels(modelsList); 
 
-              // Smart Default: If no user preference saved, disable all except "latest" per provider
-              if (localStorage.getItem("disabled_models") === null) {
-                  const toDisable = new Set<string>();
-                  const providers = new Set(modelsList.map(m => m.provider));
-                  
-                  providers.forEach(p => {
-                      const pModels = modelsList.filter(m => m.provider === p);
-                      if (pModels.length > 0) {
-                          // Find "latest" or default to first
-                          const bestModel = pModels.find(m => m.id.toLowerCase().includes('latest')) || pModels[0];
-                          
-                          // Disable all others
-                          pModels.forEach(m => {
-                              if (m.id !== bestModel.id) {
-                                  toDisable.add(m.id);
-                              }
-                          });
-                      }
-                  });
-                  
-                  updateDisabledModels(toDisable);
-                  toast.info("Applied default model settings", {
-                      description: "Only the latest models are enabled by default."
-                  });
+              // WHITELIST LOGIC:
+              // 1. Try load "enabled_models"
+              const savedEnabled = localStorage.getItem("enabled_models");
+              
+              if (savedEnabled) {
+                  setEnabledModelIds(new Set(JSON.parse(savedEnabled)));
+              } else {
+                  // 2. MIGRATION: Check if "disabled_models" exists
+                  const savedDisabled = localStorage.getItem("disabled_models");
+                  if (savedDisabled) {
+                      const disabledSet = new Set(JSON.parse(savedDisabled));
+                      // Invert: Enabled = All Fetched - Disabled
+                      const enabledSet = new Set<string>();
+                      modelsList.forEach(m => {
+                          if (!disabledSet.has(m.id)) {
+                              enabledSet.add(m.id);
+                          }
+                      });
+                      updateEnabledModels(enabledSet);
+                      localStorage.removeItem("disabled_models"); // Cleanup
+                      toast.info("Migrated settings", { description: "Converted model blocklist to allowlist." });
+                  } else {
+                      // 3. FRESH START: Default Enable "latest" only
+                      const toEnable = new Set<string>();
+                      const providers = new Set(modelsList.map(m => m.provider));
+                      
+                      providers.forEach(p => {
+                          const pModels = modelsList.filter(m => m.provider === p);
+                          if (pModels.length > 0) {
+                              // Find "latest" or default to first
+                              const bestModel = pModels.find(m => m.id.toLowerCase().includes('latest')) || pModels[0];
+                              toEnable.add(bestModel.id);
+                          }
+                      });
+                      
+                      updateEnabledModels(toEnable);
+                      toast.info("Applied default model settings", {
+                          description: "Only key models are enabled by default."
+                      });
+                  }
               }
           }
       } catch (e) {
@@ -148,31 +176,45 @@ export function ProviderSettings() {
       } finally {
           setIsLoadingModels(false);
       }
-  };
+  }, []); // Dependencies are stable or refs
+
+  // Auto-fetch models when provider changes
+  React.useEffect(() => {
+      fetchModels();
+  }, [selectedProviderId, fetchModels]);
 
   // Filter models for selected provider logic
   const providerModels = React.useMemo(() => {
-     let filtered = fetchedModels.filter(m => m.provider === selectedProviderId);
+     // 1. Apply Overrides FIRST
+     const effectiveModels = fetchedModels.map(m => {
+         const override = modelOverrides[m.id];
+         if (override) {
+             return { ...m, ...override };
+         }
+         return m;
+     });
+
+     let filtered = effectiveModels.filter(m => m.provider === selectedProviderId);
      
-     if (activeTab === "chat") filtered = filtered.filter(m => !m.capabilities.vision && !m.capabilities.functionCall); 
+     if (activeTab === "chat") filtered = filtered.filter(m => !m.capabilities.vision && !m.capabilities.functionCall && m.type !== 'image'); 
      if (activeTab === "vision") filtered = filtered.filter(m => m.capabilities.vision);
      if (activeTab === "code") filtered = filtered.filter(m => m.description.toLowerCase().includes("code") || m.name.toLowerCase().includes("code") || m.capabilities.functionCall); 
      
      return filtered;
-  }, [fetchedModels, selectedProviderId, activeTab]);
+  }, [fetchedModels, selectedProviderId, activeTab, modelOverrides]);
   
   // Toggle Logic
   const toggleModel = (id: string, name: string) => {
-      const newSet = new Set(disabledModelIds);
+      const newSet = new Set(enabledModelIds);
       let isEnabling = false;
       if (newSet.has(id)) {
           newSet.delete(id);
-          isEnabling = true;
+          isEnabling = false;
       } else {
           newSet.add(id);
-          isEnabling = false;
+          isEnabling = true;
       }
-      updateDisabledModels(newSet);
+      updateEnabledModels(newSet);
       toast.success(isEnabling ? "Model Enabled" : "Model Disabled", {
           description: `${isEnabling ? "Enabled" : "Disabled"} ${name}.`
       });
@@ -204,10 +246,10 @@ export function ProviderSettings() {
                    <div>
                        <div className="px-3 py-2 text-[10px] font-bold text-neutral-500 uppercase tracking-widest flex items-center justify-between">
                            <span>Enabled</span>
-                           <span className="bg-white/5 text-neutral-400 px-1.5 rounded-full">{STATIC_PROVIDERS.filter(p => enabledProviderIds.has(p.id)).length}</span>
+                           <span className="bg-white/5 text-neutral-400 px-1.5 rounded-full">{ALL_PROVIDERS.filter(p => enabledProviderIds.has(p.id)).length}</span>
                        </div>
                        <div className="space-y-0.5">
-                           {STATIC_PROVIDERS.filter(p => enabledProviderIds.has(p.id)).map(provider => (
+                           {ALL_PROVIDERS.filter(p => enabledProviderIds.has(p.id)).map(provider => (
                                <button
                                    key={provider.id}
                                    onClick={() => { setSelectedProviderId(provider.id); setTestModelId(""); }}
@@ -219,7 +261,7 @@ export function ProviderSettings() {
                                    )}
                                >
                                    <div className="flex items-center gap-3">
-                                       <img src={provider.icon} alt={provider.name} className="h-5 w-5 object-contain opacity-80" />
+                                       <img src={getLogo(provider.id, provider.icon)} alt={provider.name} className="h-5 w-5 object-contain opacity-80" />
                                        <span className="font-medium">{provider.name}</span>
                                    </div>
                                    {selectedProviderId === provider.id && <div className="h-1.5 w-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]" />}
@@ -234,7 +276,7 @@ export function ProviderSettings() {
                            <span>Disabled</span>
                         </div>
                         <div className="space-y-0.5">
-                           {STATIC_PROVIDERS.filter(p => !enabledProviderIds.has(p.id)).map(provider => (
+                           {ALL_PROVIDERS.filter(p => !enabledProviderIds.has(p.id)).map(provider => (
                                <button
                                    key={provider.id}
                                    onClick={() => { setSelectedProviderId(provider.id); setTestModelId(""); }}
@@ -246,7 +288,7 @@ export function ProviderSettings() {
                                    )}
                                >
                                    <div className="flex items-center gap-3">
-                                       <img src={provider.icon} alt={provider.name} className="h-5 w-5 object-contain opacity-50 grayscale group-hover:grayscale-0 transition-all" />
+                                       <img src={getLogo(provider.id, provider.icon)} alt={provider.name} className="h-5 w-5 object-contain opacity-50 grayscale group-hover:grayscale-0 transition-all" />
                                        <span className="font-medium">{provider.name}</span>
                                    </div>
                                </button>
@@ -263,7 +305,7 @@ export function ProviderSettings() {
              <div className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-[#0a0a0a]">
                  <div className="flex items-center gap-4">
                      <div className="h-8 w-8 rounded-lg bg-white p-1.5">
-                         <img src={selectedProvider.icon} alt={selectedProvider.name} className="h-full w-full object-contain" />
+                         <img src={getLogo(selectedProvider.id, selectedProvider.icon)} alt={selectedProvider.name} className="h-full w-full object-contain" />
                      </div>
                      <div>
                          <div className="flex items-center gap-2">
@@ -334,7 +376,7 @@ export function ProviderSettings() {
                                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-500" />
                                       <input 
                                           placeholder="Search Models..." 
-                                          className="bg-[#121212] border border-white/10 rounded-lg py-1.5 pl-8 pr-3 text-xs text-white focus:outline-none focus:border-white/20 w-48"
+                                          className="bg-[#121212] border border-white/10 rounded-lg py-1.5 pl-8 pr-3 text-xl text-white focus:outline-none focus:border-white/20 w-48"
                                       />
                                   </div>
                                   <Button 
@@ -388,20 +430,22 @@ export function ProviderSettings() {
                                      <div key={model.id} className="flex items-center justify-between p-4 bg-[#121212] border border-white/5 rounded-xl hover:border-white/10 transition-all group">
                                          <div className="flex items-center gap-4">
                                              <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-500">
-                                                 <img src={providers[model.provider]?.logo} alt={model.name} className="h-6 w-6 object-contain" />
+                                                 <img src={getLogo(model.provider, providers[model.provider]?.logo)} alt={model.name} className="h-6 w-6 object-contain" />
                                              </div>
                                              <div>
                                                  <div className="flex items-center gap-2">
                                                      <div className="font-semibold text-white text-sm">{model.name}</div>
-                                                     <div className="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[10px] text-neutral-400 font-mono">
+                                                     {/* <div className="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[10px] text-neutral-400 font-mono">
                                                          {model.id}
-                                                     </div>
+                                                     </div> */}
                                                  </div>
-                                                 <div className="text-xs text-neutral-500 mt-1 flex items-center gap-3">
-                                                      <span>Max Tokens: {Math.round(model.maxTokens / 1000)}K</span>
-                                                      <span className="text-neutral-700">|</span>
-                                                      <span>Provider: {model.provider}</span>
-                                                 </div>
+                                                 {/* <div className="flex items-center gap-2 mt-1.5 h-4">
+                                                      <div className="flex items-center text-xs text-neutral-500 font-medium">
+                                                          <span>Input <span className="text-neutral-300 ml-0.5">${model.cost?.input || 0}/M</span></span>
+                                                          <span className="mx-2 text-neutral-700">·</span>
+                                                          <span>Output <span className="text-neutral-300 ml-0.5">${model.cost?.output || 0}/M</span></span>
+                                                      </div>
+                                                  </div> */}
                                              </div>
                                          </div>
                                          
@@ -443,12 +487,25 @@ export function ProviderSettings() {
                                                       <Terminal className="h-3 w-3" />
                                                       {Math.round(model.maxTokens / 1000)}k
                                                   </div>
+                                                  
+                                                  {/* Edit Button */}
+                                                  <Button
+                                                    size="icon"
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                        setEditingModel(model);
+                                                        setIsConfigOpen(true);
+                                                    }}
+                                                    className="h-7 w-7 rounded-full text-neutral-500 hover:text-white hover:bg-white/10"
+                                                  >
+                                                      <Pencil className="h-3.5 w-3.5" />
+                                                  </Button>
                                               </div>
                                               
                                               <div className="h-8 w-px bg-white/5" />
 
                                               <Switch 
-                                                checked={!disabledModelIds.has(model.id)}
+                                                checked={enabledModelIds.has(model.id)}
                                                 onCheckedChange={() => toggleModel(model.id, model.name)}
                                               />
                                          </div>
@@ -457,6 +514,13 @@ export function ProviderSettings() {
                              )}
                          </div>
                      </div>
+                     
+                     <ModelConfigDialog 
+                        model={editingModel}
+                        open={isConfigOpen}
+                        onOpenChange={setIsConfigOpen}
+                        onSave={handleSaveModelConfig}
+                     />
 
                  </div>
              </ScrollArea>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as React from "react";
 import Link from "next/link";
 import { MoreHorizontal, Copy, Edit2, Pin, Archive, Trash2 } from "lucide-react";

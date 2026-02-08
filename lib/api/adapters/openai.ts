@@ -66,15 +66,63 @@ export class OpenAIAdapter implements ModelAdapter {
         };
       });
 
-      // Inject formatting instruction
-      const systemPrompt = "Format all responses using clean professional Markdown with clear section headers, bullet lists, and concise paragraphs. Use tables for comparisons and fenced code blocks for code.";
+      // Inject formatting and personalization instruction
+      // Get personalization from store (client-side access)
+      const { chatStore } = await import("@/lib/store/chat-store");
       
+      const STYLE_MAP: Record<string, string> = {
+          professional: "You are a highly disciplined PROFESSIONAL assistant. Your tone must be POLISHED, PRECISE, and FORMAL. Avoid colloquialisms. Structure your responses for maximum clarity.",
+          friendly: "You are a WARM and FRIENDLY assistant. Your tone should be chatty, helpful, and approachable, like a kind colleague.",
+          candid: "You are a CANDID assistant. Be DIRECT, ENCOURAGING, and honest. Don't sugarcoat, but be constructive.",
+          quirky: "You are a QUIRKY assistant. Be PLAYFUL, IMAGINATIVE, and don't be afraid to use colorful metaphors or slight whimsy.",
+          efficient: "You are an EFFICIENT assistant. Be CONCISE and PLAIN. Do not waffle. Get straight to the point.",
+          nerdy: "You are a NERDY assistant. Be EXPLORATORY and ENTHUSIASTIC about technical details. Geek out where appropriate.",
+          cynical: "You are a CYNICAL assistant. Be CRITICAL and slightly SARCASTIC. Question assumptions and don't be overly optimistic.",
+      };
+
+      let systemPrompt = "Format all responses using clean professional Markdown with clear section headers, bullet lists, and concise paragraphs. Use tables for comparisons and fenced code blocks for code.";
+      
+      // 1. Base Style (Strong Override)
+      if (chatStore.baseStyle && chatStore.baseStyle !== 'default') {
+           const styleInstruction = STYLE_MAP[chatStore.baseStyle] || `Style/Tone: ${chatStore.baseStyle}`;
+           systemPrompt += `\n\n### PERSONA INSTRUCTION (CRITICALLY IMPORTANT):\n${styleInstruction}`;
+      }
+      
+      // 2. Characteristics
+      const chars = Object.entries(chatStore.characteristics)
+        .filter(([_, v]) => v !== 'default');
+      
+      if (chars.length > 0) {
+          systemPrompt += `\n\n### TRAIT ADJUSTMENTS:`;
+          chars.forEach(([k, v]) => {
+               const trait = k.replace(/_/g, ' ');
+               if (v === 'more') systemPrompt += `\n- Be MORE ${trait}.`;
+               if (v === 'less') systemPrompt += `\n- Be LESS ${trait}.`;
+          });
+      }
+      
+      // 3. About User
+      const about = [];
+      if (chatStore.aboutYou.nickname) about.push(`User Nickname: ${chatStore.aboutYou.nickname}`);
+      if (chatStore.aboutYou.occupation) about.push(`User Occupation: ${chatStore.aboutYou.occupation}`);
+      if (chatStore.aboutYou.bio) about.push(`User Bio: ${chatStore.aboutYou.bio}`);
+      
+      if (about.length > 0) {
+          systemPrompt += `\n\n### USER CONTEXT:\n${about.join('\n')}`;
+      }
+      
+      // 4. Custom Instructions
+      if (chatStore.customInstructions) {
+          systemPrompt += `\n\n### CUSTOM USER INSTRUCTIONS:\n${chatStore.customInstructions}`;
+      }
+
+      console.log("[OpenAIAdapter] Generated System Prompt:", systemPrompt);
+      
+      // 5. Advanced Flags
       const hasSystem = formattedMessages.some(m => m.role === "system");
       if (!hasSystem) {
           formattedMessages.unshift({ role: "system", content: systemPrompt });
       } else {
-         // If system message exists, simpler to just append prompt to first system message
-         // or just leave it. Let's append if it's string content.
          const sysMsg = formattedMessages.find(m => m.role === "system");
          if (sysMsg && typeof sysMsg.content === 'string') {
              sysMsg.content += "\n\n" + systemPrompt;

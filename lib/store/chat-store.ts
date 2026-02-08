@@ -5,6 +5,16 @@ import { PERSONALITIES, DEFAULT_PERSONALITY, Personality } from "@/lib/api/perso
 
 export type Role = "user" | "assistant" | "system" | "tool";
 
+export interface ReasoningStep {
+  id: string;
+  thought: string;
+  status: "thinking" | "done";
+  timestamp: number;
+  toolName?: string;
+  toolArgs?: any;
+  toolResult?: string;
+}
+
 export interface Attachment {
   id?: string; // Server-side File ID
   name: string;
@@ -25,6 +35,8 @@ export interface MessageNode {
   tool_calls?: any[]; 
   tool_results?: any[]; 
   citations?: any; 
+  reasoningSteps?: ReasoningStep[]; // Persisted reasoning steps
+  activeIntegration?: { name: string; icon: string }; // Persisted integration info
   createdAt: number;
   feedback?: "like" | "dislike" | null;
   stats?: {
@@ -41,11 +53,36 @@ class ChatStore {
   rootChildrenIds: string[] = []; // Track root-level versions
   currentLeafId: string | null = null; // The active "latest" message
   chatId: string | null = null; // Supabase Chat ID
+  title: string | null = null; // Observable Title
   personality: Personality = DEFAULT_PERSONALITY; // AI Personality
   isGenerating: boolean = false;
 
   constructor() {
     makeAutoObservable(this);
+    this.hydrateSettings();
+  }
+
+  setTitle(title: string) {
+      this.title = title;
+  }
+
+  hydrateSettings() {
+      if (typeof window !== 'undefined') {
+          const savedStyle = localStorage.getItem('zod_baseStyle');
+          if (savedStyle) this.baseStyle = savedStyle;
+
+          const savedChars = localStorage.getItem('zod_characteristics');
+          if (savedChars) this.characteristics = JSON.parse(savedChars);
+
+          const savedAbout = localStorage.getItem('zod_aboutYou');
+          if (savedAbout) this.aboutYou = JSON.parse(savedAbout);
+
+          const savedAdvanced = localStorage.getItem('zod_advanced');
+          if (savedAdvanced) this.advanced = JSON.parse(savedAdvanced);
+          
+          const savedInstructions = localStorage.getItem('zod_customInstructions');
+          if (savedInstructions) this.customInstructions = savedInstructions;
+      }
   }
 
   setChatId(id: string) {
@@ -63,9 +100,7 @@ class ChatStore {
       if (prefs && prefs.personalityId) {
           const p = PERSONALITIES.find(x => x.id === prefs.personalityId);
           if (p) {
-              // runInAction not needed if using autoObservable and called from action, 
-              // but since it's async await, we set directly. 
-              this.personality = p; 
+              this.setPersonality(p);
           }
       }
   }
@@ -76,6 +111,7 @@ class ChatStore {
 
   isAnalyzing: boolean = false;
   isSearching: boolean = false; 
+  currentToolExecution: { name: string; label: string } | null = null;
   
   activeCitations: any[] | null = null;
   
@@ -87,8 +123,81 @@ class ChatStore {
     this.isSearching = isSearching;
   }
 
+  setCurrentToolExecution(tool: { name: string; label: string } | null) {
+    this.currentToolExecution = tool;
+  }
+
+  isActiveIntegrationOpen: boolean = false;
+  activeIntegration: { id: string; label: string; icon: string | any } | null = null;
+  
+  setIsActiveIntegrationOpen(open: boolean) {
+      this.isActiveIntegrationOpen = open;
+  }
+
+  setActiveIntegrationDraft(integration: { id: string; label: string; icon: string | any } | null) {
+      this.activeIntegration = integration;
+  }
+
   setActiveCitations(citations: any[] | null) {
     this.activeCitations = citations;
+  }
+
+  // Settings State
+  customInstructions: string = "";
+  memoryEnabled: boolean = true;
+
+
+  setCustomInstructions(instructions: string) {
+      this.customInstructions = instructions;
+      if (typeof window !== 'undefined') localStorage.setItem('zod_customInstructions', instructions);
+  }
+
+  setMemoryEnabled(enabled: boolean) {
+      this.memoryEnabled = enabled;
+  }
+
+  // Personalization State
+  baseStyle: string = "default";
+  characteristics: Record<string, string> = {}; 
+  aboutYou: { nickname: string; occupation: string; bio: string } = {
+      nickname: "",
+      occupation: "",
+      bio: ""
+  };
+  advanced: {
+      webSearch: boolean;
+      codeInterpreter: boolean;
+      canvas: boolean;
+      voice: boolean;
+      advancedVoice: boolean;
+      connectorSearch: boolean;
+  } = {
+      webSearch: true,
+      codeInterpreter: true,
+      canvas: true,
+      voice: true,
+      advancedVoice: true,
+      connectorSearch: false
+  };
+
+  setBaseStyle(style: string) {
+      this.baseStyle = style;
+      if (typeof window !== 'undefined') localStorage.setItem('zod_baseStyle', style);
+  }
+
+  setCharacteristic(key: string, value: string) {
+      this.characteristics = { ...this.characteristics, [key]: value };
+      if (typeof window !== 'undefined') localStorage.setItem('zod_characteristics', JSON.stringify(this.characteristics));
+  }
+
+  setAboutYou(field: keyof typeof this.aboutYou, value: string) {
+      this.aboutYou = { ...this.aboutYou, [field]: value };
+      if (typeof window !== 'undefined') localStorage.setItem('zod_aboutYou', JSON.stringify(this.aboutYou));
+  }
+
+  setAdvanced(field: keyof typeof this.advanced, value: boolean) {
+      this.advanced = { ...this.advanced, [field]: value };
+      if (typeof window !== 'undefined') localStorage.setItem('zod_advanced', JSON.stringify(this.advanced));
   }
 
   // Add a message to the active conversation path
@@ -296,8 +405,44 @@ class ChatStore {
     }
   }
 
+  // Reasoning Steps Management
+  addReasoningStep(messageId: string, step: ReasoningStep) {
+    const message = this.messages.get(messageId);
+    if (message) {
+      const existing = message.reasoningSteps || [];
+      // Avoid duplicates if id exists
+      if (!existing.find(s => s.id === step.id)) {
+          this.messages.set(messageId, { 
+              ...message, 
+              reasoningSteps: [...existing, step] 
+          });
+      }
+    }
+  }
+
+  updateReasoningStepStatus(messageId: string, stepId: string, status: "thinking" | "done") {
+      const message = this.messages.get(messageId);
+      if (message && message.reasoningSteps) {
+          const newSteps = message.reasoningSteps.map(s => 
+              s.id === stepId ? { ...s, status } : s
+          );
+          this.messages.set(messageId, { 
+              ...message, 
+              reasoningSteps: newSteps 
+          });
+      }
+  }
+
+  setActiveIntegration(messageId: string, info: { name: string; icon: string }) {
+      const message = this.messages.get(messageId);
+      if (message) {
+          this.messages.set(messageId, { ...message, activeIntegration: info });
+      }
+  }
+
   reset() {
     this.messages.clear();
+    this.rootChildrenIds = [];
     this.headId = null;
     this.currentLeafId = null;
     this.chatId = null;

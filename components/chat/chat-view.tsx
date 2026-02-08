@@ -5,8 +5,9 @@
 
 import * as React from "react";
 import { observer } from "mobx-react-lite";
-import { modelRouter } from "@/lib/api/router";
+// import { modelRouter } from "@/lib/api/router"; // Removed: Server side only
 import { chatStore } from "@/lib/store/chat-store";
+import { canvasStore } from "@/lib/store/canvas-store";
 import { createChat, createChatBranch, saveMessage, fetchMessages, updateChatTitle } from "@/lib/supabase/db";
 import { ChatInput } from "@/components/chat/input/chat-input";
 import { ChatWelcome } from "@/components/chat/chat-welcome";
@@ -16,11 +17,15 @@ import { SettingsDialog } from "@/components/profile/settings-dialog";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Sparkles, Plus } from "lucide-react";
+import { Sparkles, Plus, MessageCircleDashed, SquarePen } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import { CitationSidebar } from "@/components/chat/citation-sidebar";
 import { CanvasPanel } from "@/components/canvas/canvas-panel";
+import { toolActivityStore } from "@/lib/store/tool-activity-store";
+import { sessionMCPStore } from "@/lib/store/session-mcp-store";
+import { MCPEnablePrompt } from "@/components/chat/mcp-enable-prompt";
+import { IntegrationsDialog } from "@/components/integrations/integrations-dialog";
 
 interface ChatViewProps {
   chatId?: string;
@@ -40,8 +45,8 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
     if (chatId) {
         chatStore.setChatId(chatId);
     } else {
-        // If no ID, we are in "New Chat" mode.
-        chatStore.reset(); 
+        chatStore.reset();
+        sessionMCPStore.resetSession(); // Reset MCP session on new chat
     }
   }, [chatId]);
 
@@ -80,25 +85,52 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
           } finally {
               setIsLoading(false);
           }
+          
+          // Sync Title
+          import("@/lib/supabase/db").then(({ fetchChat }) => {
+              fetchChat(chatId).then(chat => {
+                  if (chat) chatStore.setTitle(chat.title);
+              });
+          });
       }
   }
 
   React.useEffect(() => {
       if (chatId) {
           loadHistory();
+          // Load Canvas State
+          canvasStore.loadState(chatId);
+      } else {
+          // New Chat -> Reset Canvas
+          canvasStore.reset();
       }
   }, [chatId]);
 
+  // Handle Updates to open status for autosave (if needing manual trigger? no, store handles it)
+
   // ... useEffects ...
 
-  const handleSend = async (content: string, attachments: import("@/lib/store/chat-store").Attachment[]) => {
-    console.log("ChatView.handleSend Received:", attachments);
+  const handleSend = async (content: string, attachments: import("@/lib/store/chat-store").Attachment[], contextId?: string) => {
+    if (!content.trim() && attachments.length === 0) return;
+    
+    if (!content.trim() && attachments.length === 0) return;
+    
+    // Clear previous tool activity/reasoning - No longer needed with message persistence
+    // toolActivityStore.clearAll();
+
+    console.log("ChatView.handleSend Received:", attachments, contextId);
     if (!user && !isTemp) {
         alert("Please log in to save your chat!");
     }
+
+    // 0. Prepend Context to Content if Integration Selected
+    let finalContent = content;
+    if (contextId) {
+        finalContent = `[System: Active Integration '${contextId}']\n${content}`;
+    }
     
     // 1. Add User Message
-    const userMsgId = chatStore.addMessage("user", content, null, null, attachments);
+    const userMsgId = chatStore.addMessage("user", finalContent, null, null, attachments);
     
     // 2. Sync to DB (Only if NOT Temp)
     let currentChatId = chatStore.chatId;
@@ -110,6 +142,7 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
                 if (!currentChatId) {
                     const newChat = await createChat("New Chat"); 
                     chatStore.setChatId(newChat.id);
+                    canvasStore.setChatId(newChat.id); // Sync Canvas
                     currentChatId = newChat.id;
                     isNewChat = true;
                 }
@@ -131,18 +164,24 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
         // 4. Stream Response & Save
         await generateResponse(assistantMsgId, !isTemp && currentChatId ? currentChatId : undefined);
 
-        // 5. Smart Title Gen (Fire and Forget) - Moved after generation
-        if (!isTemp && currentChatId && chatStore.thread.length <= 6) { 
-            (async () => {
-                try {
-                    const newTitle = await modelRouter.generateTitle(model as any, chatStore.thread);
-                    if (newTitle && newTitle !== "New Chat") {
-                        await updateChatTitle(currentChatId!, newTitle);
-                    }
-                } catch (e) {
-                    console.error("Title Auto-Gen Failed:", e);
-                }
-            })();
+        // 5. Smart Title Gen (Fire and Forget)
+        if (!isTemp && currentChatId && chatStore.thread.length <= 4) { 
+             fetch("/api/chat/title", {
+                 method: "POST",
+                 headers: { "Content-Type": "application/json" },
+                 body: JSON.stringify({ 
+                     messages: chatStore.thread.map(m => ({ role: m.role, content: m.content })),
+                     modelId: model 
+                 })
+             })
+             .then(res => res.json())
+             .then(data => {
+                 if (data.title && currentChatId) {
+                     updateChatTitle(currentChatId, data.title);
+                     chatStore.setTitle(data.title); // Update UI immediately
+                 }
+             })
+             .catch(err => console.error("Failed to auto-generate title", err));
         }
 
     } catch (error) {
@@ -193,75 +232,131 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
       }
   };
 
+  // Stop Generation Logic
+  const abortControllerRef = React.useRef<AbortController | null>(null);
+
+  const handleStop = () => {
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+      }
+      chatStore.setIsGenerating(false);
+      chatStore.setIsAnalyzing(false);
+  };
+
   // Extract generation logic
   const generateResponse = async (assistantMsgId: string, saveToChatId?: string) => {
       try {
             chatStore.setIsGenerating(true);
-            const stream = modelRouter.streamChat(model as any, chatStore.thread);
+            
+            // Setup AbortController
+            const ac = new AbortController();
+            abortControllerRef.current = ac;
+            
             let accumulatedContent = "";
             
-            for await (const chunk of stream) {
-                if (chunk.type === "text") {
-                    accumulatedContent += chunk.content;
-                    chatStore.updateMessageContent(assistantMsgId, accumulatedContent);
-                } else if (chunk.type === "usage") {
-                    chatStore.updateMessageStats(assistantMsgId, chunk.stats);
-                } else if (chunk.type === "tool_result") {
-                     try {
-                        chatStore.updateMessageToolResults(assistantMsgId, {
-                            role: "tool",
-                            tool_call_id: chunk.tool_call_id,
-                            name: chunk.name,
-                            content: chunk.content
-                        });
-                        const searchResults = JSON.parse(chunk.content);
-                        if (Array.isArray(searchResults)) {
-                            chatStore.updateMessageCitations(assistantMsgId, searchResults);
+            // Call Server API
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    messages: chatStore.thread, // Send full thread
+                    modelId: model,
+                    chatId: saveToChatId
+                }),
+                signal: ac.signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+            }
+
+            if (!response.body) throw new Error("No response body");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                // Decode chunk and add to buffer
+                buffer += decoder.decode(value, { stream: true });
+                
+                // Process complete lines (NDJSON)
+                const lines = buffer.split("\n");
+                // Keep the last partial line in buffer
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    
+                    try {
+                        const chunk = JSON.parse(line);
+                        
+                        if (chunk.type === "text") {
+                            accumulatedContent += chunk.content;
+                            chatStore.updateMessageContent(assistantMsgId, accumulatedContent);
+                        } else if (chunk.type === "usage") {
+                            chatStore.updateMessageStats(assistantMsgId, chunk.stats);
+                        } else if (chunk.type === "tool_result") {
+                             try {
+                                chatStore.updateMessageToolResults(assistantMsgId, {
+                                    role: "tool",
+                                    tool_call_id: chunk.tool_call_id,
+                                    name: chunk.name,
+                                    content: chunk.content
+                                });
+                                const searchResults = JSON.parse(chunk.content);
+                                if (Array.isArray(searchResults)) {
+                                    chatStore.updateMessageCitations(assistantMsgId, searchResults);
+                                }
+                            } catch (e) {
+                                 // console.error("Failed to parse tool result for citations", e);
+                            }
+                        } else if (chunk.type === "tool_call") {
+                            chatStore.updateMessageToolCalls(assistantMsgId, [chunk.tool_call]);
+                        } else if (chunk.type === "tool_call_chunk") {
+                            // Can ignore chunks if we handle final tool_call, or update incrementally
+                            // Gateway currently sends chunks then maybe a final? 
+                            // Actually gateway.ts logic yields 'tool_call_chunk'
+                            // We need to accumulate them if we want real-time update
+                            // For now, let's just log or ignore until full implementation
                         }
                     } catch (e) {
-                         console.error("Failed to parse tool result for citations", e);
+                        console.error("JSON Parse Error on line:", line, e);
                     }
-                } else if (chunk.type === "tool_call") {
-                    chatStore.updateMessageToolCalls(assistantMsgId, [chunk.tool_call]);
                 }
             }
 
             // Save Final AI Message to DB
-            if (saveToChatId) {
+            if (saveToChatId && accumulatedContent) {
                 const finalMsg = chatStore.messages.get(assistantMsgId);
                 if (finalMsg) {
                     await saveMessage(saveToChatId, finalMsg);
                 }
             }
 
-      } catch (error) {
-           console.error("Analysis Failed", error);
-           chatStore.addMessage("system", `Error: ${(error as any)?.message}`);
+      } catch (error: any) {
+           if (error.name === 'AbortError') {
+               console.log("Generation Aborted");
+           } else {
+               console.error("Analysis Failed", error);
+               chatStore.addMessage("system", `Error: ${error.message}`);
+           }
       } finally {
             chatStore.setIsGenerating(false);
             chatStore.setIsAnalyzing(false);
+            abortControllerRef.current = null;
       }
   };
 
-  const handleBranchChat = async (messageId: string) => {
-    if (!chatId) return;
-    
-    try {
-        const newChat = await createChatBranch(chatId, messageId, "Branch Chat");
-        if (newChat) {
-            toast.success("Chat branched!");
-            // Force hard navigation to ensure full remount/reset
-            window.location.assign(`/c/${newChat.id}`);
-        }
-    } catch (e) {
-        console.error("Failed to branch chat", e);
-        toast.error("Failed to create branch");
-    }
-  };
+  // ... (rest of code)
 
   return (
     <div className="flex h-full relative overflow-hidden">
-        {/* Loading Overlay */}
+        {/* ... (Loading Overlay & Floating Controls same as before) ... */}
         {isLoading && (
             <div className="absolute inset-0 z-50 bg-white/50 dark:bg-black/50 backdrop-blur-sm flex items-center justify-center">
                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -270,9 +365,14 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
 
         {/* Floating Controls Layer (Z-Index High) */}
         <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-40 pointer-events-none">
-            {/* Top Left: Model Selector (Visible always, floating) */}
-            <div className="pointer-events-auto flex items-center gap-2">
-                <ModelSelector currentModel={model as any} onModelChange={(m) => setModel(m as any)} />
+             {/* ... Model Selector ... */}
+             <div className="pointer-events-auto flex items-center gap-2">
+                <ModelSelector 
+                    currentModel={model as any} 
+                    onModelChange={(m) => setModel(m as any)} 
+                    isTemp={isTemp}
+                    onTempChange={setIsTemp}
+                />
                 <div className="h-4 w-px bg-neutral-200 dark:bg-neutral-800" />
                 <button
                     onClick={() => {
@@ -281,45 +381,36 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
                     }}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-neutral-100/50 dark:bg-neutral-800/50 hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-all border border-neutral-200/50 dark:border-neutral-700/50 text-neutral-600 dark:text-neutral-300"
                 >
-                    <Plus className="h-4 w-4" />
+                    <SquarePen className="h-4 w-4" />
                     <span className="hidden sm:inline-block">New Chat</span>
                 </button>
             </div>
-
-            {/* Top Right: Temp Chat Toggle (Visible ONLY on New Chat Page) */}
-            {!hasMessages && !chatId && (
-                <div className="pointer-events-auto">
-                    <button 
-                        onClick={() => setIsTemp(!isTemp)}
-                        className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
-                            isTemp 
-                                ? "bg-amber-500/10 text-amber-500 border-amber-500/50 hover:bg-amber-500/20" 
-                                : "bg-neutral-100 dark:bg-neutral-800 text-neutral-500 border-transparent hover:text-neutral-900 dark:hover:text-neutral-300"
-                        )}
-                    >
-                        <Sparkles className={cn("h-3.5 w-3.5", isTemp && "fill-current")} />
-                        <span>{isTemp ? "Temporary Chat Active" : "Ask Temporarily"}</span>
-                    </button>
-                    {isTemp && (
-                        <p className="text-[10px] text-amber-500/80 text-right mt-1 mr-1">
-                            Won&apos;t be saved in history.
-                        </p>
-                    )}
-                </div>
-            )}
+             {/* ... Temp Toggle ... */}
+             {/* ... Temp Toggle Moved to ModelSelector ... */}
         </div>
 
-        {/* Main Content Area - Flexible Width */}
+        {/* Main Content Area */}
         <div className="flex-1 flex flex-col h-full min-w-0 transition-all duration-300 ease-in-out">
             <div className="flex-1 w-full overflow-y-auto">
                 {!hasMessages ? (
-                    // Landing Empty State (Centered)
                     <ChatWelcome onSend={(content, attachments) => handleSend(content, attachments)} />
                 ) : (
                     <div className="flex flex-col min-h-full">
-                        {/* Messages Area - Pushes Footer down */}
                         <div className="flex-1 pt-14">
+                            {sessionMCPStore.pendingEnableRequest && (
+                                <div className="px-4 mb-4 max-w-3xl mx-auto">
+                                    <MCPEnablePrompt
+                                        integration={sessionMCPStore.pendingEnableRequest.integration}
+                                        action={sessionMCPStore.pendingEnableRequest.action}
+                                        onEnable={() => sessionMCPStore.respondToRequest(true)}
+                                        onOpenSkillStore={() => {
+                                            sessionMCPStore.dismissRequest();
+                                            chatStore.setIsActiveIntegrationOpen(true);
+                                        }}
+                                    />
+                                </div>
+                            )}
+                            
                             <MessageList onRegenerate={handleRegenerate} onEdit={handleEdit} />
                         </div>
 
@@ -327,15 +418,15 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
                         <div className="sticky bottom-0 z-30 w-full rounded-t-lg pb-2 bg-gradient-to-t from-white via-white to-transparent dark:from-[#121212] dark:via-[#121212] dark:to-transparent pt-10">
                             <ChatInput 
                                 onSend={handleSend}
-                                showFooterDisclaimer={true} // Visible in footer view
+                                showFooterDisclaimer={true}
+                                isGenerating={chatStore.isGenerating}
+                                onStop={handleStop}
                             />
                         </div>
                     </div>
                 )}
             </div>
         </div>
-
-
 
         {/* Right Sidebar - Citations */}
         {chatStore.activeCitations && (
@@ -344,11 +435,26 @@ export const ChatView = observer(({ chatId }: ChatViewProps) => {
              </div>
         )}
 
-        {/* Canvas Panel (Rightmost) */}
-        <CanvasPanel />
-
+        {/* Canvas Panel */}
+        {canvasStore.isOpen && <CanvasPanel />}
         
         <SettingsDialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+        
+        {/* Global Apps Dialog */}
+        <IntegrationsDialog 
+            open={chatStore.isActiveIntegrationOpen} 
+            onOpenChange={(open) => chatStore.setIsActiveIntegrationOpen(open)}
+            onSelect={(integration) => {
+                 // Update Draft in Store
+                 chatStore.setActiveIntegrationDraft({
+                     id: integration.id,
+                     label: integration.name,
+                     icon: integration.icon
+                 });
+                 chatStore.setIsActiveIntegrationOpen(false);
+            }}
+            selectedIds={chatStore.activeIntegration ? [chatStore.activeIntegration.id] : []}
+        />
     </div>
   );
 });

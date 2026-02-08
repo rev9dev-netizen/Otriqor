@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @next/next/no-img-element */
 import * as React from "react";
 import { models, providers, Model } from "@/lib/config/models";
@@ -7,223 +7,246 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { ChevronDown, Eye, Brain, Globe, Box, CheckCircle2 } from "lucide-react";
+import { ChevronDown, Search, Check, Sparkles, CircleDashed } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useProviderLogos } from "@/hooks/use-provider-logos";
+
+// Define Top Tier Models (Exact IDs) - REMOVED, using model.tier property
 
 interface ModelSelectorProps {
   currentModel: string;
   onModelChange: (modelId: string) => void;
+  isTemp?: boolean;
+  onTempChange?: (val: boolean) => void;
 }
 
-// ... imports
-
-export function ModelSelector({ currentModel, onModelChange }: ModelSelectorProps) {
+export function ModelSelector({ currentModel, onModelChange, isTemp, onTempChange }: ModelSelectorProps) {
   const [availableModels, setAvailableModels] = React.useState<Model[]>(models);
-  const [disabledModelIds, setDisabledModelIds] = React.useState<Set<string>>(new Set());
-  const [enabledProviderIds, setEnabledProviderIds] = React.useState<Set<string>>(new Set(["mistral"])); // Default
-  const [isLoading, setIsLoading] = React.useState(true);
-
+  const [searchQuery, setSearchQuery] = React.useState("");
+  
+  // Dynamic Logos Hook
+  const { getLogo } = useProviderLogos();
+  
   React.useEffect(() => {
-    // Load disabled models preferences
-    const savedDisabled = localStorage.getItem("disabled_models");
-    if (savedDisabled) {
-        try {
-            setDisabledModelIds(new Set(JSON.parse(savedDisabled)));
-        } catch(e) { console.error("Error loading disabled logic", e); }
-    }
-
-    // Load enabled providers preferences
-    const savedProviders = localStorage.getItem("enabled_providers");
-    if (savedProviders) {
-        try {
-            setEnabledProviderIds(new Set(JSON.parse(savedProviders)));
-        } catch(e) { console.error("Error loading provider logic", e); }
-    }
-
+    // Simplified Static Fetch
+    // We trust models.ts is the single source of truth now.
+    // Fetch API to get any potential metadata updates but DO NOT overwrite enabled status basically.
     async function fetchData() {
-      try {
-        // 1. Fetch Models
-        const modelsRes = await fetch("/api/models");
-        let allModels: Model[] = [];
-        if (modelsRes.ok) {
-          const data = await modelsRes.json();
-          const uniqueModels = new Map();
-          data.models.forEach((m: Model) => {
-              if (!uniqueModels.has(m.id)) {
-                  uniqueModels.set(m.id, m);
-              }
-          });
-          allModels = Array.from(uniqueModels.values());
-          setAvailableModels(allModels);
+        try {
+            const modelsRes = await fetch("/api/models");
+            if (modelsRes.ok) {
+                const data = await modelsRes.json();
+                // Map API results to key updateable fields only if needed (e.g. status)
+                // But for Reset Scope, we rely on static models.ts mainly.
+                // We'll just set what we have from the API if it respects our config.
+                
+                // Actually, the API now returns the static models too (see model-service.ts update).
+                // So we can just use the API result if we want, or fail safe to import.
+                if (Array.isArray(data.models) && data.models.length > 0) {
+                     setAvailableModels(data.models);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to fetch models, using static fallback", e);
         }
-
-        // 2. Fetch Availability (Keys present?)
-        const availRes = await fetch("/api/models/availability");
-        if (availRes.ok) {
-            const { providers } = await availRes.json();
-            const activeProviders = new Set<string>();
-            Object.entries(providers).forEach(([provider, isAvailable]) => {
-                if (isAvailable) activeProviders.add(provider);
-            });
-            setEnabledProviderIds(activeProviders);
-        }
-      } catch (error) {
-        console.error("Failed to fetch data", error);
-      } finally {
-        setIsLoading(false);
-      }
     }
     fetchData();
   }, []);
 
-  // Filter out disabled models AND disabled providers
-  const enabledModels = React.useMemo(() => {
-     return availableModels.filter(m => 
-        !disabledModelIds.has(m.id) && 
-        enabledProviderIds.has(m.provider)
-     );
-  }, [availableModels, disabledModelIds, enabledProviderIds]);
+  // Filter models
+  const filteredModels = React.useMemo(() => {
+     let list = availableModels.filter(m => {
+        // 1. Core Check: Must be enabled in config
+        // "All other models... Must remain disabled by config flag"
+        if (!m.enabled) return false;
 
-  const activeModel = enabledModels.find((m) => m.id === currentModel) || enabledModels[0] || models[0];
-  const activeProvider = providers[activeModel.provider]; // If activeModel fallback is used, ensure safe access
+        return true;
+     });
 
-  // Group models by provider
-  const modelsByProvider = React.useMemo(() => {
-    const grouped: Record<string, Model[]> = {};
-    enabledModels.forEach((model) => {
-      if (!grouped[model.provider]) {
-        grouped[model.provider] = [];
-      }
-      grouped[model.provider].push(model);
-    });
-    return grouped;
-  }, [enabledModels]);
+     // 2. Search Filter
+     if (searchQuery.trim()) {
+         const q = searchQuery.toLowerCase();
+         list = list.filter(m => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
+     }
+     
+     return list;
+  }, [availableModels, searchQuery]);
 
-  if (!activeProvider) return null; // Fallback
+  const activeModel = availableModels.find((m) => m.id === currentModel) || models.find(m => m.enabled) || models[0];
+  const activeProvider = providers[activeModel?.provider] || providers[models[0].provider];
+  const activeLogo = activeProvider ? getLogo(activeModel.provider, activeProvider.logo) : "";
+
+  // Split Logic
+  const topTierModels = filteredModels.filter(m => m.tier === 'flagship');
+  const otherModels = filteredModels.filter(m => m.tier !== 'flagship'); // Mode or others
+  
+  // If search is active, we show a flat list (filteredModels), ignoring the split
+  const isSearching = searchQuery.trim().length > 0;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-neutral-800 transition-colors text-sm font-medium text-white group outline-none">
-          <div className="h-5 w-5 rounded-full flex items-center justify-center bg-white p-0.5 overflow-hidden">
-             <img 
-               src={activeProvider.logo} 
-               alt={activeModel.name} 
-               className="h-full w-full object-contain"
-             />
+        <button className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-base font-medium outline-none group max-w-[240px]">
+          <div className="h-6 w-6 rounded-full flex items-center justify-center bg-white p-1 overflow-hidden border border-neutral-200 dark:border-neutral-700 shrink-0">
+             <img src={activeLogo} alt={activeModel.name} className="h-full w-full object-contain" />
           </div>
-          {/* ... */}
-          <span className="text-neutral-200 group-hover:text-white transition-colors">
+          <span className="text-neutral-700 dark:text-neutral-200 truncate">
             {activeModel.name}
           </span>
-          <ChevronDown className="h-3 w-3 text-neutral-500 group-hover:text-white transition-colors" />
+          <ChevronDown className="h-4 w-4 text-neutral-500 shrink-0" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent 
         align="start" 
-        className="w-[500px] bg-[#1a1a1a]/95 backdrop-blur-xl border-white/10 p-0 shadow-2xl overflow-hidden"
+        className="w-[280px] bg-[#1a1a1a] border-neutral-800 p-0 shadow-2xl overflow-hidden rounded-xl text-neutral-200"
       >
-        <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/5 text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
-           <span>Model Name</span>
-           <span>Capabilities</span>
+        {/* Search Header */}
+        <div className="p-2">
+             <div className="relative">
+                 <Search className="absolute left-1 top-1/2 -translate-y-1/2 h-4.5 w-4.5 text-neutral-500" />
+                 <input 
+                    className="w-full bg-neutral-900/50 rounded-md pl-8 pr-3 py-1.5 text-lg text-neutral-200 placeholder:text-neutral-600 focus:outline-none transition-colors"
+                    placeholder="Search models..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    autoFocus
+                 />
+             </div>
         </div>
-        
-        <div className="max-h-[400px] overflow-y-auto p-2 scrollbar-hide">
-          {Object.entries(modelsByProvider).map(([providerId, providerModels]) => {
-            const providerConfig = providers[providerId as keyof typeof providers];
-            if (!providerConfig) return null;
 
-            return (
-              <div key={providerId} className="mb-2 last:mb-0">
-                {/* Provider Header */}
-                <div className="px-2 py-1.5 text-xs font-semibold text-neutral-400 flex items-center gap-2">
-                   <img src={providerConfig.logo} alt={providerConfig.name} className="h-3 w-3 opacity-50" />
-                   {providerConfig.name}
-                </div>
+        <div className="py-1">
+            {!isSearching ? (
+                <>
+                    {/* Top Tier Section */}
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-semibold text-neutral-500">
+                        Models
+                    </div>
+                    {topTierModels.map(model => (
+                        <ModelItem 
+                            key={model.id} 
+                            model={model} 
+                            isSelected={currentModel === model.id} 
+                            onSelect={() => onModelChange(model.id)}
+                            getLogo={getLogo}
+                        />
+                    ))}
 
-                {/* Models List */}
-                <div className="space-y-1">
-                  {providerModels.map((model) => (
-                    <DropdownMenuItem
-                      key={model.id}
-                      onClick={() => onModelChange(model.id)}
-                      className={cn(
-                        "flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all outline-none group gap-4",
-                        currentModel === model.id 
-                          ? "bg-white/10" 
-                          : "hover:bg-white/5"
-                      )}
-                    >
-                      {/* Left: Icon + Name */}
-                      <div className="flex items-center gap-3 min-w-0">
-                         <div className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 bg-white p-1 overflow-hidden">
-                             <img 
-                               src={providers[model.provider].logo} 
-                               alt={model.name} 
-                               className="h-full w-full object-contain"
-                             />
-                         </div>
-                         <div className="flex flex-col min-w-0">
-                             <span className="text-sm font-medium text-neutral-200 group-hover:text-white transition-colors truncate">
-                                 {model.name}
-                             </span>
-                             {currentModel === model.id && (
-                               <div className="flex items-center gap-1 text-[10px] text-green-400">
-                                 <CheckCircle2 className="h-3 w-3" />
-                                 <span>Active</span>
-                               </div>
-                             )}
-                         </div>
-                      </div>
-          
-                      {/* Right: Capabilities + Tokens */}
-                      <div className="flex items-center gap-3 shrink-0">
-                          {/* Capability Icons */}
-                          <div className="flex items-center gap-1.5">
-                              {/* Reasoning / Thinking */}
-                              {model.capabilities.thinking && (
-                                  <div className="p-1.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20" title="Reasoning">
-                                      <Brain className="h-3.5 w-3.5" />
-                                  </div>
-                              )}
-                              {/* Code (Implicit or explicit? Using functionCall/general for now, or just Brain variants) */}
-                              {/* Vision */}
-                              {model.capabilities.vision && (
-                                  <div className="p-1.5 rounded bg-green-500/10 text-green-400 border border-green-500/20" title="Vision">
-                                      <Eye className="h-3.5 w-3.5" />
-                                  </div>
-                              )}
-                              {/* Web Search */}
-                              {model.capabilities.webSearch && (
-                                   <div className="p-1.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20" title="Web Search">
-                                      <Globe className="h-3.5 w-3.5" />
-                                   </div>
-                              )}
-                              {/* Function Calling / Tools */}
-                              {model.capabilities.functionCall && (
-                                   <div className="p-1.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20" title="Tools">
-                                      <Box className="h-3.5 w-3.5" />
-                                   </div>
-                              )}
-                          </div>
-          
-                          {/* Vertical Divider */}
-                          <div className="h-4 w-px bg-white/10" />
-          
-                          {/* Token Count Badge */}
-                          <div className="px-2 py-0.5 rounded bg-white/5 text-neutral-500 text-[10px] font-mono font-medium min-w-[50px] text-center border border-white/5">
-                              {model.maxTokens >= 1000 ? `${Math.round(model.maxTokens / 1000)}K` : model.maxTokens}
-                          </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
+                    {topTierModels.length === 0 && (
+                         <div className="px-4 py-2 text-xs text-neutral-500 italic">No top tier models available</div>
+                    )}
+
+                    {/* More Models Submenu */}
+                    {otherModels.length > 0 && (
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger className="flex items-center justify-between px-3 py-2 mx-1 rounded-md text-sm cursor-pointer hover:bg-white/5 focus:bg-white/5 data-[state=open]:bg-white/5 outline-none">
+                                <span className="text-neutral-300">More models</span>
+                                {/* Chevron handled by SubTrigger automatically usually, but we can add count */}
+                                <span className="ml-auto text-[10px] text-neutral-500 mr-2">{otherModels.length}</span>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent 
+                                className="w-[260px] bg-[#1a1a1a] border-neutral-800 text-neutral-200 p-0 shadow-xl overflow-hidden ml-1"
+                                sideOffset={8}
+                            >
+                                <div className="max-h-[300px] overflow-y-auto p-1 scrollbar-hide space-y-0.5">
+                                    {otherModels.map(model => (
+                                        <ModelItem 
+                                            key={model.id} 
+                                            model={model} 
+                                            isSelected={currentModel === model.id} 
+                                            onSelect={() => onModelChange(model.id)} 
+                                            getLogo={getLogo}
+                                        />
+                                    ))}
+                                </div>
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    )}
+                </>
+            ) : (
+                /* Search Results (Flat List) */
+                <div className="max-h-[300px] overflow-y-auto p-1 scrollbar-hide space-y-0.5">
+                    {filteredModels.map(model => (
+                        <ModelItem 
+                            key={model.id} 
+                            model={model} 
+                            isSelected={currentModel === model.id} 
+                            onSelect={() => onModelChange(model.id)} 
+                            getLogo={getLogo}
+                        />
+                    ))}
+                    {filteredModels.length === 0 && (
+                        <div className="px-4 py-8 text-center text-xs text-neutral-500">
+                            No models found.
+                        </div>
+                    )}
                 </div>
-              </div>
-            );
-          })}
+            )}
         </div>
+
+        {/* Footer Area */}
+        <div className="border-t border-white/5">
+             {onTempChange && (
+                 <div className="flex items-center justify-between px-3 py-2.5 transition-colors cursor-pointer group hover:bg-white/5" onClick={() => onTempChange?.(!isTemp)}>
+                      <div className="flex items-center gap-2.5">
+                           <div className={cn("h-4 w-4 rounded flex items-center justify-center border transition-colors", 
+                               isTemp ? "border-amber-500/50 bg-amber-500/10 text-amber-500" : "border-neutral-700 text-neutral-500"
+                           )}>
+                               <CircleDashed className="h-2.5 w-2.5" />
+                           </div>
+                           <span className="text-xs font-medium text-neutral-400 group-hover:text-neutral-300">Temporary chat</span>
+                      </div>
+                      <Switch 
+                          checked={isTemp} 
+                          onCheckedChange={onTempChange}
+                          className="scale-75 data-[state=checked]:bg-amber-600"
+                      />
+                 </div>
+             )}
+        </div>
+
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Helper Component for Model Items to reduce duplication
+function ModelItem({ model, isSelected, onSelect, getLogo }: { model: Model, isSelected: boolean, onSelect: () => void, getLogo: any }) {
+    const providerConfig = providers[model.provider];
+    const logo = providerConfig ? getLogo(model.provider, providerConfig.logo) : "";
+    
+    return (
+        <DropdownMenuItem
+          onClick={onSelect}
+          className={cn(
+            "flex items-center justify-between px-3 py-2.5 rounded-lg cursor-pointer outline-none transition-colors mx-1",
+            isSelected ? "bg-blue-500/10" : "hover:bg-white/5 focus:bg-white/5"
+          )}
+        >
+            <div className="flex items-center gap-3 min-w-0">
+                 {/* Icon */}
+                 <div className="h-6 w-6 rounded-full bg-white p-1 flex items-center justify-center shrink-0 opacity-90">
+                     <img src={logo} alt="" className="h-full w-full object-contain" />
+                 </div>
+                 
+                 {/* Name */}
+                 <div className="flex items-center gap-2 min-w-0">
+                     <span className={cn("text-sm font-medium truncate", isSelected ? "text-blue-400" : "text-neutral-300")}>
+                         {model.name}
+                     </span>
+                     {/* Beta Badge */}
+                     {(model.id.includes("beta") || model.id.includes("preview")) && (
+                         <span className="text-[10px] font-bold text-blue-500 uppercase tracking-tight shrink-0">BETA</span>
+                     )}
+                 </div>
+            </div>
+
+            {isSelected && <Check className="h-4 w-4 text-blue-500 shrink-0" />}
+        </DropdownMenuItem>
+    );
 }

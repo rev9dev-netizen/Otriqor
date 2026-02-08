@@ -1,8 +1,8 @@
-import * as React from "react";
 import { Button } from "@/components/ui/button";
 import TextareaAutosize from "react-textarea-autosize";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { ThinkingAnimation } from "@/components/chat/thinking-animation";
+import { observer } from "mobx-react-lite";
 // fileText removed
 
 interface MessageContentProps {
@@ -17,9 +17,10 @@ interface MessageContentProps {
   isStreaming?: boolean;
   isAnalyzing?: boolean;
   isSearching?: boolean;
+  hasReasoning?: boolean;
 }
 
-export function MessageContent({ 
+export const MessageContent = observer(function MessageContent({ 
     isEditing, 
     content, 
     editContent, 
@@ -28,7 +29,8 @@ export function MessageContent({
     onEditSave,
     isStreaming,
     isAnalyzing,
-    isSearching
+    isSearching,
+    hasReasoning
 }: MessageContentProps) {
     if (isEditing) {
         return (
@@ -47,6 +49,10 @@ export function MessageContent({
         );
     }
 
+    // Tool icon logic removed (legacy)
+
+    // const currentTool = chatStore.currentToolExecution;
+
     return (
         <div className="flex flex-col gap-2"> 
             
@@ -55,31 +61,12 @@ export function MessageContent({
                 <MarkdownRenderer content={content} />
             )}
             
-            {/* Streaming / Analyzing / Searching Indicator - Sequential */}
-            {(isStreaming || isAnalyzing || isSearching) && content.length === 0 && (
+            {/* Streaming / Loading Indicator - Only if NOT reasoning */}
+            {(isStreaming || isAnalyzing || isSearching) && !hasReasoning && content.length === 0 && (
                 <div className="flex items-center gap-2 text-neutral-500">
-                     {/* Only RAG triggers Analyzing, Web Search triggers Searching */}
-                     {isAnalyzing ? (
-                         <div className="flex items-center gap-2">
-                            <span className="relative flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
-                            </span>
-                            <span className="text-sm font-medium animate-pulse text-orange-500">Analyzing file...</span>
-                         </div>
-                     ) : isSearching ? ( // Searching UI
-                         <div className="flex items-center gap-2">
-                            <span className="relative flex h-3 w-3">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
-                            </span>
-                            <span className="text-sm font-medium animate-pulse text-orange-500">Searching the internet...</span>
-                         </div>
-                     ) : (
-                         <ThinkingAnimation />
-                     )}
+                     <ThinkingAnimation />
                 </div>
             )}
         </div>
     );
-}
+});
